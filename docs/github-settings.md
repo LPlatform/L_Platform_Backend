@@ -1,7 +1,7 @@
 # GitHub settings and outstanding setup
 
-The account can administer this repository. Recommended squash-only merging is enabled. The private repository rulesets endpoint is unavailable under the current GitHub plan/visibility, so branch ruleset state could not be inspected or changed through that API. Do not change visibility as a workaround.
+Squash-only merging and read-only Actions defaults are enabled. GitHub returned `Upgrade to GitHub Pro or make this repository public` for the private repo branch-protection/ruleset APIs. Keep this repository private. The owner must upgrade the plan or apply an organization-level ruleset before `main` can require PRs/status checks, conversation resolution, linear history, and force-push/deletion protection.
 
-After CI has run on a PR, enable branch protection where supported: require PRs and observed CI checks, conversation resolution and linear history; block force pushes and branch deletion; use zero required approvals for solo-owner merging. If unavailable, upgrade the plan or apply equivalent organization controls. Require only status check names actually observed.
+Protect `backend-v*` release tags from update/deletion when the plan permits. Keep required approval count at zero for solo-owner merging. No branch or tag protection is active for this private repo. Require only status check names observed after product jobs run; do not require the skipped private security checks.
 
-Enable dependency graph/Dependabot alerts, secret scanning and push protection in repository settings where supported. Use least-privilege Actions defaults. OCI OIDC trust, registry, environments and infrastructure are not provisioned; do not deploy until configured.
+Dependabot alerts/security updates and read-only Actions defaults are enabled. Secret scanning, push protection, CodeQL and dependency review need eligible private-repository security licensing. The owner must provision OCI registry/target and OIDC trust, create protected staging/production Environments with production reviewers, then configure deployment steps. No credentials or target are present.

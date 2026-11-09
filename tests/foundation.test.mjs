@@ -11,6 +11,7 @@ test('backend trust boundaries and migration rules are documented', () => {
   assert.match(read('AGENTS.md'), /Never run untrusted code in API processes/i);
   assert.match(read('AGENTS.md'), /Never automatically run destructive migrations in production/i);
   assert.match(read('docs/integration/api-contracts.md'), /versioned immutable artifact/i);
+  assert.equal(read('.nvmrc').trim(), '24.22.1');
 });
 
 test('workflow actions use full commit SHAs', () => {
@@ -20,4 +21,14 @@ test('workflow actions use full commit SHAs', () => {
       assert.match(line, /@[a-f0-9]{40}(?:\s|$)/, `${file}: ${line.trim()}`);
     }
   }
+});
+
+test('product and migration jobs are separate from bootstrap smoke tests', () => {
+  assert.match(read('.github/workflows/ci.yml'), /name: bootstrap-smoke/);
+  assert.match(read('.github/workflows/ci.yml'), /name: backend-product-ci/);
+  assert.match(read('.github/workflows/api-tests.yml'), /if: needs\.readiness\.outputs\.product-configured == 'true'/);
+  assert.match(read('.github/workflows/database-tests.yml'), /if: needs\.readiness\.outputs\.product-configured == 'true'/);
+  assert.match(read('.github/workflows/docker-build.yml'), /lplatform-backend:\$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(read('.github/workflows/release.yml'), /lplatform-backend:release/);
+  assert.match(read('.github/workflows/release.yml'), /existing release/i);
 });

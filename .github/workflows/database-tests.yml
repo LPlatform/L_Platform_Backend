@@ -2,15 +2,37 @@ name: Database and Migration Tests
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: database-tests-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    outputs:
+      product-configured: ${{ steps.project.outputs.configured }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: project
+        shell: bash
+        run: |
+          if [[ -f package.json ]]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo 'Database/migration tests: SKIPPED (no package.json or migration system).' >> "$GITHUB_STEP_SUMMARY"
+          fi
   migrations:
+    needs: readiness
+    if: needs.readiness.outputs.product-configured == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.15-bookworm
         env: { POSTGRES_USER: test, POSTGRES_PASSWORD: test, POSTGRES_DB: lplatform_test }
         ports: ['5432:5432']
         options: >-
@@ -18,13 +40,14 @@ jobs:
           --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Validate clean and upgrade migrations
-        shell: bash
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: corepack enable && corepack prepare pnpm@11.25.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Validate clean and previous-supported migration paths
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/lplatform_test
-        run: |
-          if [[ ! -f package.json ]]; then echo '::notice::ORM and migrations are not configured; clean/upgrade migration tests are unavailable.'; exit 0; fi
-          corepack enable && corepack prepare pnpm@11.25.0 --activate
-          pnpm install --frozen-lockfile
-          pnpm db:migrate:test-clean
-          pnpm db:migrate:test-upgrade
+        run: pnpm db:migrate:test-clean && pnpm db:migrate:test-upgrade

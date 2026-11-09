@@ -7,25 +7,42 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  image:
+  readiness:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    outputs:
+      docker-configured: ${{ steps.project.outputs.configured }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Build image when Dockerfile is configured
-        id: build
+      - id: project
+        shell: bash
         run: |
-          if [[ ! -f Dockerfile ]]; then echo '::notice::No Dockerfile; image build/scan and OCI publication are not configured.'; echo 'built=false' >> "$GITHUB_OUTPUT"; exit 0; fi
-          docker build --pull --tag lplatform-backend:ci .
-          docker image inspect lplatform-backend:ci --format '{{.Id}}'
-          echo 'built=true' >> "$GITHUB_OUTPUT"
+          if [[ -f Dockerfile ]]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo 'Container build/scan: SKIPPED (no Dockerfile).' >> "$GITHUB_STEP_SUMMARY"
+          fi
+  image:
+    needs: readiness
+    if: needs.readiness.outputs.docker-configured == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build commit-addressed image
+        env:
+          IMAGE_REF: lplatform-backend:${{ github.sha }}
+        run: |
+          docker build --pull --tag "$IMAGE_REF" .
+          docker image inspect "$IMAGE_REF" --format '{{.Id}}' | tee image-id.txt
+          echo "Built local image ref $IMAGE_REF (not published to a registry)." >> "$GITHUB_STEP_SUMMARY"
       - name: Scan image for vulnerabilities
-        if: steps.build.outputs.built == 'true'
         uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
         with:
-          image-ref: lplatform-backend:ci
+          image-ref: lplatform-backend:${{ github.sha }}
           format: table
           exit-code: '1'
           ignore-unfixed: true

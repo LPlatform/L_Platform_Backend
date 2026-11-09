@@ -1,3 +1,3 @@
 # Changelog
 
-All notable changes will be documented here. Releases use independent `backend-vMAJOR.MINOR.PATCH` tags and generated GitHub release notes. No releases exist yet.
+This file is maintained through reviewed changes. The tag workflow generates GitHub Release notes from merged changes; it does not rewrite this file. No releases exist yet.
