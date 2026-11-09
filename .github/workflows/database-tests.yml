@@ -24,7 +24,7 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/lplatform_test
         run: |
           if [[ ! -f package.json ]]; then echo '::notice::ORM and migrations are not configured; clean/upgrade migration tests are unavailable.'; exit 0; fi
-          corepack enable && corepack prepare pnpm@11.0.0 --activate
+          corepack enable && corepack prepare pnpm@11.25.0 --activate
           pnpm install --frozen-lockfile
           pnpm db:migrate:test-clean
           pnpm db:migrate:test-upgrade

@@ -14,7 +14,7 @@ jobs:
         shell: bash
         run: |
           if [[ ! -f package.json ]]; then echo '::notice::API package/tests are not configured.'; exit 0; fi
-          corepack enable && corepack prepare pnpm@11.0.0 --activate
+          corepack enable && corepack prepare pnpm@11.25.0 --activate
           pnpm install --frozen-lockfile
           pnpm test:unit
           pnpm test:integration

@@ -23,7 +23,7 @@ jobs:
           fi
       - name: Test, build and validate migrations
         run: |
-          corepack enable && corepack prepare pnpm@11.0.0 --activate
+          corepack enable && corepack prepare pnpm@11.25.0 --activate
           pnpm install --frozen-lockfile
           pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm build
           docker build --pull --tag lplatform-backend:release .

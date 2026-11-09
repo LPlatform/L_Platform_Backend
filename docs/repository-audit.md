@@ -12,4 +12,4 @@ Audit date: 2026-11-09. Source: authenticated GitHub API and the initial local c
 | Actions / tests / ignored files / release config | None existed at audit time. |
 | README | None existed at audit time. |
 
-No source or useful configuration was present to preserve. This PR adds governance and workflow foundations only. NestJS code, ORM choice, PostgreSQL migrations, Dockerfile, judge service, tests, OCI tenancy/registry, deploy credentials and release credentials remain unconfigured. No sandbox security is claimed.
+No source or useful configuration was present to preserve. This PR adds governance and workflow foundations plus repository-policy smoke tests only. NestJS code, ORM choice, PostgreSQL migrations, Dockerfile, judge service, product tests, OpenAPI source, OCI tenancy/registry, deploy credentials and release credentials remain unconfigured. No sandbox security is claimed.

@@ -1,0 +1,35 @@
+name: OpenAPI Contract
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check for API specification
+        id: contract
+        run: |
+          if [[ -f openapi/openapi.yaml ]]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::No OpenAPI specification exists yet; contract validation and publication are deferred.'
+            echo 'OpenAPI contract: NOT CONFIGURED.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Lint OpenAPI specification
+        if: steps.contract.outputs.available == 'true'
+        run: npx --yes @redocly/cli@2.64.1 lint openapi/openapi.yaml
+      - name: Package versioned contract artifact
+        if: steps.contract.outputs.available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openapi-${{ github.sha }}
+          path: openapi/openapi.yaml
+          if-no-files-found: error
+          retention-days: 90
