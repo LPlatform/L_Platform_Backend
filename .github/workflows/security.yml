@@ -13,8 +13,14 @@ permissions:
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    if: ${{ github.event.repository.private == false }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: github/codeql-action/init@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        if: ${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') != '' }}
         with: { languages: javascript-typescript, build-mode: none }
       - uses: github/codeql-action/analyze@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        if: ${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') != '' }}
+      - name: Report unavailable analysis
+        if: ${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') == '' }}
+        run: echo 'No JavaScript/TypeScript source exists yet; CodeQL analysis is deferred.' >> "$GITHUB_STEP_SUMMARY"
