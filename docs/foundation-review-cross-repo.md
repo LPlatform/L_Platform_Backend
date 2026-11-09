@@ -18,7 +18,7 @@ Review date: 2026-11-09. Covers the open foundation PRs in Web #1, Backend #1 an
 
 ## Workflow and build evidence
 
-All `uses:` references are full SHA pins. YAML is parsed locally; no YAML syntax error was found after the review fixes. Node bootstrap smoke tests verify governance boundaries and Action pins. The repos have no product packages, source, lockfiles, Dockerfile, migrations, OpenAPI spec or Tauri config. Consequently, there is no verified application production build, backend container build, migration run, installer, code signing or deployment. Prior PR checks that showed green for empty product jobs are superseded by explicit skipped jobs and must not be counted as build evidence. `actionlint` was unavailable; final GitHub Action reruns on the review commits are the authoritative workflow check.
+All `uses:` references are full SHA pins. YAML is parsed locally; no YAML syntax error was found after the review fixes. The Node bootstrap smoke suites verify governance boundaries and Action pins. On the reviewed code heads: Web `5499a4b` had `bootstrap-smoke` pass and product/security checks skip; Backend `92a1861` had bootstrap smoke pass, readiness checks complete, and API/database/container/OpenAPI product jobs skip; Application `d7bd9a1` had bootstrap smoke pass, readiness checks complete, and CodeQL/dependency-review/native/Rust product jobs skip. All three PRs report clean status after the corrections. No application production build, backend container build, migration run, installer, code signing or deployment was verified. Earlier green empty-product jobs are superseded and are not build evidence. `actionlint` was unavailable. Report-only follow-up commits trigger fresh smoke checks.
 
 ## Settings, gaps and owner actions
 
