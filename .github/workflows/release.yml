@@ -1,0 +1,32 @@
+name: Backend Release
+on:
+  push:
+    tags: ['backend-v*.*.*']
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { fetch-depth: 0 }
+      - name: Validate approved SemVer tag
+        env: { TAG: '${{ github.ref_name }}' }
+        run: |
+          [[ "$TAG" =~ ^backend-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          git merge-base --is-ancestor "$TAG" origin/main
+      - name: Require tested backend inputs
+        run: |
+          if [[ ! -f package.json || ! -f pnpm-lock.yaml || ! -f Dockerfile ]]; then
+            echo 'Release blocked: package, lockfile and Dockerfile are required.'
+            exit 1
+          fi
+      - name: Test, build and validate migrations
+        run: |
+          corepack enable && corepack prepare pnpm@11.0.0 --activate
+          pnpm install --frozen-lockfile
+          pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:integration && pnpm build
+          docker build --pull --tag lplatform-backend:release .
+      - name: Publish GitHub Release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release create "$TAG" --generate-notes --verify-tag

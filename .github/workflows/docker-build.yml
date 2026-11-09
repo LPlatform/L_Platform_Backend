@@ -1,0 +1,21 @@
+name: Docker Build and Scan
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build image when Dockerfile is configured
+        run: |
+          if [[ ! -f Dockerfile ]]; then echo '::notice::No Dockerfile; image build/scan and OCI publication are not configured.'; exit 0; fi
+          docker build --pull --tag lplatform-backend:ci .
+          docker image inspect lplatform-backend:ci --format '{{.Id}}'
