@@ -201,9 +201,55 @@ paths:
       summary: Submit solution
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignmentId, questionId, language, code]
+              properties:
+                assignmentId:
+                  type: string
+                questionId:
+                  type: string
+                language:
+                  type: string
+                  enum: [PYTHON, JAVA, CPP]
+                code:
+                  type: string
       responses:
-        '201':
-          description: Created and evaluated
+        '202':
+          description: Submission accepted and stored as pending. The API does not execute submitted code; an isolated execution worker is not yet available.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, assignmentId, questionId, studentId, language, status, score, results]
+                properties:
+                  id:
+                    type: string
+                  assignmentId:
+                    type: string
+                  questionId:
+                    type: string
+                  studentId:
+                    type: string
+                  language:
+                    type: string
+                    enum: [PYTHON, JAVA, CPP]
+                  status:
+                    type: string
+                    enum: [PENDING]
+                  score:
+                    type: 'null'
+                  totalTestCases:
+                    type: integer
+                  passedTestCases:
+                    type: integer
+                  results:
+                    type: array
+                    items: {}
   /api/dashboard/summary:
     get:
       summary: Dashboard summary counts
@@ -226,3 +272,4 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+

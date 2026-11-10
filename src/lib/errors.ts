@@ -26,3 +26,4 @@ export const Errors = {
   internal: (message = 'Internal server error', details?: unknown) =>
     new AppError(500, 'INTERNAL_SERVER_ERROR', message, details),
 };
+

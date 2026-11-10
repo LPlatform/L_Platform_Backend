@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { eq, ilike, and, sql, desc } from 'drizzle-orm';
+import { eq, ilike, and, sql, desc, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { classes, sections, studentSectionMemberships } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
@@ -65,7 +65,7 @@ export async function classRoutes(app: FastifyInstance) {
               .from(studentSectionMemberships)
               .where(
                 and(
-                  sql`section_id = ANY(${secIds})`,
+                  inArray(studentSectionMemberships.sectionId, secIds),
                   eq(studentSectionMemberships.status, 'ACTIVE'),
                 ),
               );
@@ -209,3 +209,4 @@ export async function classRoutes(app: FastifyInstance) {
     },
   );
 }
+

@@ -1,12 +1,5 @@
 FROM node:24-bookworm-slim AS base
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    default-jdk \
-    g++ \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@12.18.0 --activate

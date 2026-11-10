@@ -8,11 +8,13 @@ import {
   testCases,
   questions,
   assignments,
+  assignmentQuestions,
+  studentSectionMemberships,
+  teacherSectionMemberships,
   users,
 } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
 import { authenticate } from '../middleware/auth.js';
-import { evaluateSubmission, TestCasePayload } from '../services/evaluator.service.js';
 
 export async function submissionRoutes(app: FastifyInstance) {
   // POST /api/submissions - Submit code
@@ -20,7 +22,7 @@ export async function submissionRoutes(app: FastifyInstance) {
     const body = request.body as any;
     const user = request.user!;
 
-    if (!body.assignmentId || !body.questionId || !body.code || !body.language) {
+    if (!body.assignmentId || !body.questionId || typeof body.code !== 'string' || !body.code.trim() || !body.language) {
       throw Errors.badRequest('Missing required fields: assignmentId, questionId, code, language');
     }
 
@@ -28,9 +30,48 @@ export async function submissionRoutes(app: FastifyInstance) {
       throw Errors.badRequest('Unsupported language. Allowed: PYTHON, JAVA, CPP');
     }
 
+    const assignment = await db.query.assignments.findFirst({
+      where: eq(assignments.id, body.assignmentId),
+    });
+    if (!assignment) throw Errors.notFound('Assignment not found');
+
+    const linkedQuestion = await db.query.assignmentQuestions.findFirst({
+      where: and(
+        eq(assignmentQuestions.assignmentId, assignment.id),
+        eq(assignmentQuestions.questionId, body.questionId),
+      ),
+    });
+    if (!linkedQuestion) throw Errors.badRequest('Question is not part of this assignment');
+
+    if (user.role === 'STUDENT') {
+      if (!['PUBLISHED', 'CLOSED'].includes(assignment.status)) {
+        throw Errors.forbidden('This assignment is not available for submission');
+      }
+      const membership = await db.query.studentSectionMemberships.findFirst({
+        where: and(
+          eq(studentSectionMemberships.sectionId, assignment.sectionId),
+          eq(studentSectionMemberships.studentId, user.userId),
+          eq(studentSectionMemberships.status, 'ACTIVE'),
+        ),
+      });
+      if (!membership) throw Errors.forbidden('You are not enrolled in this assignment section');
+    } else if (user.role === 'TEACHER') {
+      const membership = await db.query.teacherSectionMemberships.findFirst({
+        where: and(
+          eq(teacherSectionMemberships.sectionId, assignment.sectionId),
+          eq(teacherSectionMemberships.teacherId, user.userId),
+          eq(teacherSectionMemberships.status, 'ACTIVE'),
+        ),
+      });
+      if (!membership) throw Errors.forbidden('You are not assigned to this section');
+    } else if (user.role === 'ORGANIZATION_ADMIN' && assignment.organizationId !== user.organizationId) {
+      throw Errors.forbidden('Access denied');
+    }
+
     const subId = `sub-${uuidv4().slice(0, 8)}`;
 
-    // Insert pending submission
+    // Keep new submissions pending until a separately isolated execution worker is available.
+    // Never execute untrusted source code in the API process.
     await db.insert(submissions).values({
       id: subId,
       assignmentId: body.assignmentId,
@@ -38,92 +79,20 @@ export async function submissionRoutes(app: FastifyInstance) {
       studentId: user.userId,
       code: body.code,
       language: body.language,
-      status: 'EVALUATING',
+      status: 'PENDING',
     });
 
-    // Load test cases
-    const allTc = await db.query.testCases.findMany({
-      where: eq(testCases.questionId, body.questionId),
-      orderBy: [testCases.orderNum],
-    });
-
-    const tcPayloads: TestCasePayload[] = allTc.map((tc) => ({
-      id: tc.id,
-      input: tc.input,
-      expectedOutput: tc.expectedOutput,
-      isHidden: tc.isHidden,
-      isSample: tc.isSample,
-      timeLimitMs: tc.timeLimitMs,
-      memoryLimitMb: tc.memoryLimitMb,
-    }));
-
-    // Evaluate
-    const evalResult = await evaluateSubmission(body.code, body.language, tcPayloads);
-
-    // Update submission
-    await db
-      .update(submissions)
-      .set({
-        status: evalResult.status,
-        score: evalResult.score,
-        totalTestCases: evalResult.totalTestCases,
-        passedTestCases: evalResult.passedTestCases,
-        evaluatedAt: new Date(),
-      })
-      .where(eq(submissions.id, subId));
-
-    // Persist test case results
-    for (const r of evalResult.results) {
-      await db.insert(submissionResults).values({
-        id: `sr-${uuidv4().slice(0, 8)}`,
-        submissionId: subId,
-        testCaseId: r.testCaseId,
-        status: r.status,
-        actualOutput: r.actualOutput,
-        executionTimeMs: r.executionTimeMs,
-        memoryUsedKb: r.memoryUsedKb,
-        errorMessage: r.errorMessage,
-      });
-    }
-
-    // Prepare response (Sanitize hidden test cases for students!)
-    const tcMap = new Map(allTc.map((tc) => [tc.id, tc]));
-    const isStudent = user.role === 'STUDENT';
-
-    const sanitizedResults = evalResult.results.map((r) => {
-      const tc = tcMap.get(r.testCaseId);
-      const isHidden = tc?.isHidden ?? false;
-
-      if (isStudent && isHidden) {
-        return {
-          testCaseId: r.testCaseId,
-          status: r.status,
-          executionTimeMs: r.executionTimeMs,
-          isHidden: true,
-          isSample: false,
-          actualOutput: null, // Hidden test output NEVER exposed to student
-          errorMessage: null,
-        };
-      }
-
-      return {
-        ...r,
-        isHidden,
-        isSample: tc?.isSample ?? false,
-      };
-    });
-
-    return reply.status(201).send({
+    return reply.status(202).send({
       id: subId,
       assignmentId: body.assignmentId,
       questionId: body.questionId,
       studentId: user.userId,
       language: body.language,
-      status: evalResult.status,
-      score: evalResult.score,
-      totalTestCases: evalResult.totalTestCases,
-      passedTestCases: evalResult.passedTestCases,
-      results: sanitizedResults,
+      status: 'PENDING',
+      score: null,
+      totalTestCases: 0,
+      passedTestCases: 0,
+      results: [],
     });
   });
 
@@ -138,8 +107,26 @@ export async function submissionRoutes(app: FastifyInstance) {
 
     if (!sub) throw Errors.notFound('Submission not found');
 
+    const assignment = await db.query.assignments.findFirst({
+      where: eq(assignments.id, sub.assignmentId),
+    });
+    if (!assignment) throw Errors.notFound('Assignment not found');
+
     if (user.role === 'STUDENT' && sub.studentId !== user.userId) {
       throw Errors.forbidden('Access denied');
+    }
+    if (user.role === 'ORGANIZATION_ADMIN' && assignment.organizationId !== user.organizationId) {
+      throw Errors.forbidden('Access denied');
+    }
+    if (user.role === 'TEACHER') {
+      const membership = await db.query.teacherSectionMemberships.findFirst({
+        where: and(
+          eq(teacherSectionMemberships.sectionId, assignment.sectionId),
+          eq(teacherSectionMemberships.teacherId, user.userId),
+          eq(teacherSectionMemberships.status, 'ACTIVE'),
+        ),
+      });
+      if (!membership) throw Errors.forbidden('Access denied');
     }
 
     const results = await db.query.submissionResults.findMany({
@@ -193,12 +180,43 @@ export async function submissionRoutes(app: FastifyInstance) {
     let studentId = query.studentId?.trim();
 
     const user = request.user!;
+    const conditions: any[] = [];
 
     if (user.role === 'STUDENT') {
       studentId = user.userId; // Students can only view their own
+    } else if (user.role === 'TEACHER') {
+      const memberships = await db.query.teacherSectionMemberships.findMany({
+        where: and(
+          eq(teacherSectionMemberships.teacherId, user.userId),
+          eq(teacherSectionMemberships.status, 'ACTIVE'),
+        ),
+        columns: { sectionId: true },
+      });
+      const sectionIds = memberships.map((membership) => membership.sectionId);
+      if (sectionIds.length === 0) {
+        return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+      }
+      const teacherAssignments = await db.query.assignments.findMany({
+        where: inArray(assignments.sectionId, sectionIds),
+        columns: { id: true },
+      });
+      const assignmentIds = teacherAssignments.map((item) => item.id);
+      if (assignmentIds.length === 0) {
+        return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+      }
+      conditions.push(inArray(submissions.assignmentId, assignmentIds));
+    } else if (user.role === 'ORGANIZATION_ADMIN') {
+      const orgAssignments = await db.query.assignments.findMany({
+        where: eq(assignments.organizationId, user.organizationId!),
+        columns: { id: true },
+      });
+      const assignmentIds = orgAssignments.map((item) => item.id);
+      if (assignmentIds.length === 0) {
+        return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+      }
+      conditions.push(inArray(submissions.assignmentId, assignmentIds));
     }
 
-    const conditions: any[] = [];
     if (assignmentId) conditions.push(eq(submissions.assignmentId, assignmentId));
     if (questionId) conditions.push(eq(submissions.questionId, questionId));
     if (studentId) conditions.push(eq(submissions.studentId, studentId));
@@ -249,3 +267,4 @@ export async function submissionRoutes(app: FastifyInstance) {
     });
   });
 }
+

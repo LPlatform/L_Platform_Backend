@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { eq, ilike, and, sql, desc } from 'drizzle-orm';
+import { eq, ilike, and, sql, desc, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import {
   sections,
@@ -29,6 +29,31 @@ export async function sectionRoutes(app: FastifyInstance) {
       if (classId) conditions.push(eq(sections.classId, classId));
       if (status && status !== 'ALL') conditions.push(eq(sections.status, status));
       if (search) conditions.push(ilike(sections.name, `%${search}%`));
+
+      if (request.user!.role === 'TEACHER') {
+        const memberships = await db.query.teacherSectionMemberships.findMany({
+          where: and(
+            eq(teacherSectionMemberships.teacherId, request.user!.userId),
+            eq(teacherSectionMemberships.status, 'ACTIVE'),
+          ),
+          columns: { sectionId: true },
+        });
+        const assignedIds = memberships.map((membership) => membership.sectionId);
+        if (assignedIds.length === 0) {
+          return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+        }
+        conditions.push(inArray(sections.id, assignedIds));
+      } else if (request.user!.role === 'ORGANIZATION_ADMIN') {
+        const organizationClasses = await db.query.classes.findMany({
+          where: eq(classes.organizationId, request.user!.organizationId!),
+          columns: { id: true },
+        });
+        const classIds = organizationClasses.map((academicClass) => academicClass.id);
+        if (classIds.length === 0) {
+          return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+        }
+        conditions.push(inArray(sections.classId, classIds));
+      }
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -104,6 +129,7 @@ export async function sectionRoutes(app: FastifyInstance) {
     });
 
     if (!sec) throw Errors.notFound('Section not found');
+    await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
 
     const studentCountRes = await db
       .select({ count: sql<number>`count(*)::int` })
@@ -137,6 +163,12 @@ export async function sectionRoutes(app: FastifyInstance) {
   // GET /api/sections/:id/roster
   app.get('/api/sections/:id/roster', { preHandler: [authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    const section = await db.query.sections.findFirst({
+      where: eq(sections.id, id),
+      with: { class: true },
+    });
+    if (!section) throw Errors.notFound('Section not found');
+    await assertSectionAccess(request.user!, section.id, section.class.organizationId);
 
     const studentMemberships = await db
       .select({
@@ -376,3 +408,33 @@ export async function sectionRoutes(app: FastifyInstance) {
     },
   );
 }
+
+async function assertSectionAccess(
+  user: { userId: string; role: string; organizationId: string | null },
+  sectionId: string,
+  organizationId: string,
+) {
+  if (user.role === 'PLATFORM_ADMIN') return;
+  if (user.role === 'ORGANIZATION_ADMIN' && user.organizationId === organizationId) return;
+  if (user.role === 'TEACHER') {
+    const membership = await db.query.teacherSectionMemberships.findFirst({
+      where: and(
+        eq(teacherSectionMemberships.sectionId, sectionId),
+        eq(teacherSectionMemberships.teacherId, user.userId),
+        eq(teacherSectionMemberships.status, 'ACTIVE'),
+      ),
+    });
+    if (membership) return;
+  } else if (user.role === 'STUDENT') {
+    const membership = await db.query.studentSectionMemberships.findFirst({
+      where: and(
+        eq(studentSectionMemberships.sectionId, sectionId),
+        eq(studentSectionMemberships.studentId, user.userId),
+        eq(studentSectionMemberships.status, 'ACTIVE'),
+      ),
+    });
+    if (membership) return;
+  }
+  throw Errors.forbidden('Access denied to this section');
+}
+

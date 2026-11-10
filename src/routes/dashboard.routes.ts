@@ -124,14 +124,20 @@ export async function dashboardRoutes(app: FastifyInstance) {
     '/api/dashboard/student-growth',
     { preHandler: [authenticate] },
     async (request, reply) => {
-      return reply.send([
-        { label: 'Jan', value: 120 },
-        { label: 'Feb', value: 240 },
-        { label: 'Mar', value: 380 },
-        { label: 'Apr', value: 520 },
-        { label: 'May', value: 690 },
-        { label: 'Jun', value: 850 },
-      ]);
+      const user = request.user!;
+      const month = sql`date_trunc('month', ${users.createdAt})`;
+      const rows = await db
+        .select({ label: sql<string>`to_char(${month}, 'Mon YYYY')`, value: sql<number>`count(*)::int` })
+        .from(users)
+        .where(and(
+          eq(users.role, 'STUDENT'),
+          user.role !== 'PLATFORM_ADMIN' && user.organizationId
+            ? eq(users.organizationId, user.organizationId)
+            : undefined,
+        ))
+        .groupBy(month)
+        .orderBy(month);
+      return reply.send(rows);
     },
   );
 
@@ -140,11 +146,14 @@ export async function dashboardRoutes(app: FastifyInstance) {
     '/api/dashboard/organization-distribution',
     { preHandler: [authenticate] },
     async (request, reply) => {
-      return reply.send([
-        { label: 'K-12 Schools', value: 45 },
-        { label: 'Higher Education', value: 30 },
-        { label: 'Bootcamps & Academies', value: 25 },
-      ]);
+      const user = request.user!;
+      const rows = await db
+        .select({ label: organizations.status, value: sql<number>`count(*)::int` })
+        .from(organizations)
+        .where(user.role === 'PLATFORM_ADMIN' ? undefined : eq(organizations.id, user.organizationId!))
+        .groupBy(organizations.status)
+        .orderBy(organizations.status);
+      return reply.send(rows);
     },
   );
 
