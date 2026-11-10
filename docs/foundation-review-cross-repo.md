@@ -22,14 +22,14 @@ All `uses:` references are full SHA pins. YAML is parsed locally; no YAML syntax
 
 ## Settings, gaps and owner actions
 
-| Area | Web / Backend private repos | Application public repo |
-|---|---|---|
-| Squash merge / Actions token | Squash-only and read-only default permissions enabled | Same |
-| Dependabot | Alerts and security updates enabled; weekly config present | Same |
-| Branch protection | API returned “Upgrade to GitHub Pro or make this repository public.” No branch protection active. Keep visibility private; owner must upgrade or apply organization policy. | `main` protection active. Required check contexts were corrected; verify new head. Zero approvals preserve solo merge ability. |
-| Release tag protection | Ruleset API returned same plan limitation; no tag protection active. Owner must upgrade or apply organization policy. Existing-release guards remain in workflows. | Active `app-v*` ruleset blocks tag update/deletion. |
-| CodeQL/dependency review | Skipped; private-repo Code Security licensing required | Workflows skip until product source/lockfiles exist. Secret scanning and push protection are enabled. |
-| Deploy approval/credentials | No target, OIDC, Environment reviewers or credentials. Owner must select OCI/host, create protected staging/production Environments, set reviewers/branch limits and configure secrets. | No signing/release Environment or credentials. Owner must configure protected release Environment and signing when ready. |
+| Area                         | Web / Backend private repos                                                                                                                                                             | Application public repo                                                                                                        |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Squash merge / Actions token | Squash-only and read-only default permissions enabled                                                                                                                                   | Same                                                                                                                           |
+| Dependabot                   | Alerts and security updates enabled; weekly config present                                                                                                                              | Same                                                                                                                           |
+| Branch protection            | API returned “Upgrade to GitHub Pro or make this repository public.” No branch protection active. Keep visibility private; owner must upgrade or apply organization policy.             | `main` protection active. Required check contexts were corrected; verify new head. Zero approvals preserve solo merge ability. |
+| Release tag protection       | Ruleset API returned same plan limitation; no tag protection active. Owner must upgrade or apply organization policy. Existing-release guards remain in workflows.                      | Active `app-v*` ruleset blocks tag update/deletion.                                                                            |
+| CodeQL/dependency review     | Skipped; private-repo Code Security licensing required                                                                                                                                  | Workflows skip until product source/lockfiles exist. Secret scanning and push protection are enabled.                          |
+| Deploy approval/credentials  | No target, OIDC, Environment reviewers or credentials. Owner must select OCI/host, create protected staging/production Environments, set reviewers/branch limits and configure secrets. | No signing/release Environment or credentials. Owner must configure protected release Environment and signing when ready.      |
 
 ## Remaining release risks
 

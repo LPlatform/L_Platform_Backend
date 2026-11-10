@@ -1,9 +1,11 @@
 # Engineering instructions
 
 ## Architecture
+
 Private API, persistence, workers, judge and infrastructure repository. Planned stack: Node.js, NestJS, TypeScript, PostgreSQL, selected ORM, Docker, OCI and OpenAPI. No business modules are implemented as part of this foundation.
 
 ## Development and security rules
+
 - Backend owns the versioned OpenAPI contract; web and desktop consume pinned published artifacts. Never share backend source with consumers.
 - Keep the judge as a separately deployed execution boundary. Never run untrusted code in API processes/jobs or share API DB credentials with the judge. Do not claim sandbox security without adversarial tests.
 - Use migrations reviewed and tested against clean and previous-supported test databases. Never automatically run destructive migrations in production; separate migration execution from app startup.
