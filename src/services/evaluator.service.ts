@@ -128,7 +128,7 @@ export async function evaluateSubmission(
     if (language === 'PYTHON') {
       const codePath = path.join(tmpDir, 'solution.py');
       await fs.writeFile(codePath, code, 'utf8');
-      runCommand = 'python';
+      runCommand = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3');
       runArgs = [codePath];
     } else if (language === 'JAVA') {
       const codePath = path.join(tmpDir, 'Main.java');
