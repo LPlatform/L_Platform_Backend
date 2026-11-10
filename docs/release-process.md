@@ -1,0 +1,5 @@
+# Release process
+
+Use SemVer and `backend-vMAJOR.MINOR.PATCH` tags from `main`. The release workflow validates format/ancestry, runs unit/integration/database checks, build and Trivy scan, then attaches a commit-addressed Docker save artifact, image ID, checksum and (when present) a validated OpenAPI file. GitHub Release notes are generated after checks. The workflow refuses an existing release. Tag update/deletion protection is unavailable on the current private-repo plan. `CHANGELOG.md` remains manually reviewed and is not rewritten by release automation.
+
+No package version source, ORM, migrations, Dockerfile or OCI environment is configured, so release workflow is untested and no image is published to an OCI registry. Select one version of record in the future package manifest. Migration execution must be separately reviewed; never run destructive migrations automatically in production. Configure protected Environment reviewers and OIDC before deployment. Rollback requires the prior immutable image/artifact and a reviewed migration recovery plan.

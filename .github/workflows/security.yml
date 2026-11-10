@@ -1,0 +1,40 @@
+name: CodeQL
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-readiness:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    outputs:
+      has-source: ${{ steps.source.outputs.available }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: source
+        shell: bash
+        run: |
+          if find src -type f \( -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' \) -print -quit 2>/dev/null | grep -q .; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'CodeQL: SKIPPED (no backend source files).' >> "$GITHUB_STEP_SUMMARY"
+          fi
+  analyze:
+    needs: source-readiness
+    if: needs.source-readiness.outputs.has-source == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: github/codeql-action/init@9418214df1f2c4b8128c770156c409013b07d6b9 # v3
+        with: { languages: javascript-typescript, build-mode: none }
+      - uses: github/codeql-action/analyze@9418214df1f2c4b8128c770156c409013b07d6b9 # v3

@@ -1,0 +1,26 @@
+name: Prepare Production Deployment
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Immutable OCI image digest (sha256:...)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+jobs:
+  readiness:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validate deployment prerequisites
+        env:
+          DIGEST: '${{ inputs.image_digest }}'
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo 'Production deployment is intentionally unavailable until OCI target, OIDC federation, and protected-environment approval are configured.'
+          exit 1

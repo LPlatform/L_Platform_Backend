@@ -1,0 +1,26 @@
+name: Prepare Staging Deployment
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: Immutable OCI image digest (sha256:...)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+jobs:
+  readiness:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Validate deployment prerequisites
+        env:
+          DIGEST: '${{ inputs.image_digest }}'
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo 'No OCI target or deploy command is configured. Provision OIDC and staging infrastructure before enabling deployment.'
+          exit 1

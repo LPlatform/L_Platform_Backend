@@ -1,0 +1,5 @@
+# API contract publishing
+
+The backend owns the API contract. Generate OpenAPI from the application, validate the document, and publish it as a versioned immutable artifact tied to a backend release. Web and desktop consumers pin a specific contract version, regenerate clients, and run compatibility tests. Breaking changes require explicit approval and a new compatible contract version. Never share backend source or allow consumers to copy models manually.
+
+The `openapi-contract.yml` workflow lints `openapi/openapi.yaml` and packages it under a commit-pinned artifact name for up to 90 days once the spec exists. The backend release attaches the validated contract with its `backend-vX.Y.Z` version when present. This does not yet publish to a durable cross-repository registry. No API application, OpenAPI generator, artifact registry or consumer automation exists yet. Choose a private artifact registry/access strategy and retention policy before durable publication; do not publish a potentially sensitive contract publicly without review.
