@@ -22,7 +22,13 @@ export async function submissionRoutes(app: FastifyInstance) {
     const body = request.body as any;
     const user = request.user!;
 
-    if (!body.assignmentId || !body.questionId || typeof body.code !== 'string' || !body.code.trim() || !body.language) {
+    if (
+      !body.assignmentId ||
+      !body.questionId ||
+      typeof body.code !== 'string' ||
+      !body.code.trim() ||
+      !body.language
+    ) {
       throw Errors.badRequest('Missing required fields: assignmentId, questionId, code, language');
     }
 
@@ -64,7 +70,10 @@ export async function submissionRoutes(app: FastifyInstance) {
         ),
       });
       if (!membership) throw Errors.forbidden('You are not assigned to this section');
-    } else if (user.role === 'ORGANIZATION_ADMIN' && assignment.organizationId !== user.organizationId) {
+    } else if (
+      user.role === 'ORGANIZATION_ADMIN' &&
+      assignment.organizationId !== user.organizationId
+    ) {
       throw Errors.forbidden('Access denied');
     }
 
@@ -267,4 +276,3 @@ export async function submissionRoutes(app: FastifyInstance) {
     });
   });
 }
-

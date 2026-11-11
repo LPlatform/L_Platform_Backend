@@ -40,7 +40,7 @@ jobs:
           docker image inspect "$IMAGE_REF" --format '{{.Id}}' | tee image-id.txt
           echo "Built local image ref $IMAGE_REF (not published to a registry)." >> "$GITHUB_STEP_SUMMARY"
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
           image-ref: lplatform-backend:${{ github.sha }}
           format: table

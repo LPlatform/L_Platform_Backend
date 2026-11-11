@@ -80,4 +80,3 @@ describe('Auth Service & Tenant Isolation', () => {
     expect(checkTenantAccess(orgAdmin, null)).toBe(false);
   });
 });
-

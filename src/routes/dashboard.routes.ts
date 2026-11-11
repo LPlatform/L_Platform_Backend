@@ -7,6 +7,7 @@ import {
   classes,
   sections,
   courses,
+  courseAllocations,
   assignments,
   submissions,
   studentSectionMemberships,
@@ -42,6 +43,55 @@ export async function dashboardRoutes(app: FastifyInstance) {
       );
     const totalStudents = (await studentCountQuery)[0]?.count || 0;
 
+    const teacherCountQuery = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(users)
+      .where(
+        and(
+          eq(users.role, 'TEACHER'),
+          !isPlatformAdmin && orgId ? eq(users.organizationId, orgId) : undefined,
+        ),
+      );
+    const totalTeachers = (await teacherCountQuery)[0]?.count || 0;
+
+    const activeOrgCount = isPlatformAdmin
+      ? (
+          await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(organizations)
+            .where(eq(organizations.status, 'ACTIVE'))
+        )[0]?.count || 0
+      : 1;
+
+    const pendingInvQuery = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(invitations)
+      .where(
+        and(
+          eq(invitations.status, 'PENDING'),
+          !isPlatformAdmin && orgId ? eq(invitations.organizationId, orgId) : undefined,
+        ),
+      );
+    const pendingInvitations = (await pendingInvQuery)[0]?.count || 0;
+
+    const totalAllocQuery = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(courseAllocations)
+      .where(!isPlatformAdmin && orgId ? eq(courseAllocations.organizationId, orgId) : undefined);
+    const totalAllocations = (await totalAllocQuery)[0]?.count || 0;
+
+    const activeAllocQuery = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(courseAllocations)
+      .where(
+        and(
+          eq(courseAllocations.status, 'ACTIVE'),
+          eq(courseAllocations.accessEnabled, true),
+          !isPlatformAdmin && orgId ? eq(courseAllocations.organizationId, orgId) : undefined,
+        ),
+      );
+    const activeAllocations = (await activeAllocQuery)[0]?.count || 0;
+
     const classCountQuery = db.select({ count: sql<number>`count(*)::int` }).from(classes);
     if (!isPlatformAdmin && orgId) classCountQuery.where(eq(classes.organizationId, orgId));
     const totalClasses = (await classCountQuery)[0]?.count || 0;
@@ -55,12 +105,16 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
     return reply.send({
       totalOrganizations: orgCount,
+      activeOrganizations: activeOrgCount,
       totalUsers,
       totalStudents,
+      totalTeachers,
       totalClasses,
       totalCourses,
       totalSubmissions,
-      activeOrganizations: orgCount,
+      pendingInvitations,
+      totalAllocations,
+      activeAllocations,
       systemHealth: 'HEALTHY',
     });
   });
@@ -127,14 +181,19 @@ export async function dashboardRoutes(app: FastifyInstance) {
       const user = request.user!;
       const month = sql`date_trunc('month', ${users.createdAt})`;
       const rows = await db
-        .select({ label: sql<string>`to_char(${month}, 'Mon YYYY')`, value: sql<number>`count(*)::int` })
+        .select({
+          label: sql<string>`to_char(${month}, 'Mon YYYY')`,
+          value: sql<number>`count(*)::int`,
+        })
         .from(users)
-        .where(and(
-          eq(users.role, 'STUDENT'),
-          user.role !== 'PLATFORM_ADMIN' && user.organizationId
-            ? eq(users.organizationId, user.organizationId)
-            : undefined,
-        ))
+        .where(
+          and(
+            eq(users.role, 'STUDENT'),
+            user.role !== 'PLATFORM_ADMIN' && user.organizationId
+              ? eq(users.organizationId, user.organizationId)
+              : undefined,
+          ),
+        )
         .groupBy(month)
         .orderBy(month);
       return reply.send(rows);
@@ -150,7 +209,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
       const rows = await db
         .select({ label: organizations.status, value: sql<number>`count(*)::int` })
         .from(organizations)
-        .where(user.role === 'PLATFORM_ADMIN' ? undefined : eq(organizations.id, user.organizationId!))
+        .where(
+          user.role === 'PLATFORM_ADMIN' ? undefined : eq(organizations.id, user.organizationId!),
+        )
         .groupBy(organizations.status)
         .orderBy(organizations.status);
       return reply.send(rows);
@@ -162,7 +223,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
     '/api/dashboard/recent-activity',
     { preHandler: [authenticate] },
     async (request, reply) => {
+      const user = request.user!;
+      if (user.role === 'STUDENT') {
+        return reply.send([]);
+      }
       const logs = await db.query.auditLogs.findMany({
+        where:
+          user.role !== 'PLATFORM_ADMIN' && user.organizationId
+            ? eq(auditLogs.organizationId, user.organizationId)
+            : undefined,
         limit: 10,
         orderBy: desc(auditLogs.createdAt),
       });

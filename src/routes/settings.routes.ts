@@ -5,6 +5,46 @@ import { platformSettings } from '../db/schema/index.js';
 import { requireRole } from '../middleware/auth.js';
 import { seedDatabase } from '../db/seed.js';
 
+const defaultPreferences = {
+  timezone: 'Asia/Kolkata',
+  dateFormat: 'DD/MM/YYYY',
+  theme: 'system',
+  notifications: {
+    organizationCreated: true,
+    invitationAccepted: true,
+    allocationExpiring: true,
+    weeklyDigest: false,
+  },
+  adminProfile: {
+    firstName: 'Platform',
+    lastName: 'Administrator',
+    email: 'admin@lplatform.dev',
+    jobTitle: 'Platform administrator',
+  },
+  sessionPreferences: { idleTimeoutMinutes: 60, requireReauthentication: false },
+};
+
+function toSettingsDto(
+  row: NonNullable<Awaited<ReturnType<typeof db.query.platformSettings.findFirst>>>,
+) {
+  const saved = (row.preferences ?? {}) as Record<string, unknown>;
+  return {
+    ...defaultPreferences,
+    ...saved,
+    notifications: {
+      ...defaultPreferences.notifications,
+      ...((saved.notifications as object) ?? {}),
+    },
+    adminProfile: { ...defaultPreferences.adminProfile, ...((saved.adminProfile as object) ?? {}) },
+    sessionPreferences: {
+      ...defaultPreferences.sessionPreferences,
+      ...((saved.sessionPreferences as object) ?? {}),
+    },
+    platformName: row.platformName,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 export async function settingsRoutes(app: FastifyInstance) {
   // GET /api/settings
   app.get(
@@ -22,7 +62,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         });
       }
 
-      return reply.send(settings);
+      return reply.send(settings ? toSettingsDto(settings) : null);
     },
   );
 
@@ -34,20 +74,27 @@ export async function settingsRoutes(app: FastifyInstance) {
       const body = request.body as any;
 
       const updateData: any = { updatedAt: new Date() };
+      const current = await db.query.platformSettings.findFirst({
+        where: eq(platformSettings.id, 'default'),
+      });
       if (body.platformName !== undefined) updateData.platformName = body.platformName;
-      if (body.supportEmail !== undefined) updateData.supportEmail = body.supportEmail;
-      if (body.allowedDomains !== undefined) updateData.allowedDomains = body.allowedDomains;
-      if (body.sessionTimeoutMinutes !== undefined)
-        updateData.sessionTimeoutMinutes = body.sessionTimeoutMinutes;
-      if (body.maxFileUploadMb !== undefined) updateData.maxFileUploadMb = body.maxFileUploadMb;
-      if (body.maintenanceMode !== undefined) updateData.maintenanceMode = body.maintenanceMode;
+      updateData.preferences = {
+        ...((current?.preferences as object) ?? {}),
+        timezone: body.timezone,
+        dateFormat: body.dateFormat,
+        theme: body.theme,
+        notifications: body.notifications,
+        adminProfile: body.adminProfile,
+        sessionPreferences: body.sessionPreferences,
+      };
 
+      await db.insert(platformSettings).values({ id: 'default' }).onConflictDoNothing();
       await db.update(platformSettings).set(updateData).where(eq(platformSettings.id, 'default'));
       const updated = await db.query.platformSettings.findFirst({
         where: eq(platformSettings.id, 'default'),
       });
 
-      return reply.send(updated);
+      return reply.send(updated ? toSettingsDto(updated) : null);
     },
   );
 

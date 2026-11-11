@@ -225,7 +225,8 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, assignmentId, questionId, studentId, language, status, score, results]
+                required:
+                  [id, assignmentId, questionId, studentId, language, status, score, results]
                 properties:
                   id:
                     type: string
@@ -258,6 +259,90 @@ paths:
       responses:
         '200':
           description: Metrics
+  /api/learning/ai-readiness:
+    get:
+      summary: Get allocated AI Readiness Course content
+      description: Returns shared paraphrased course content when the course is published and the authenticated user's organization has an active allocation. Platform administrators may view it without an organization allocation.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Course metadata and eight learning modules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, title, description, attribution, sourceTitle, modules]
+                properties:
+                  id:
+                    type: string
+                  title:
+                    type: string
+                  description:
+                    type: string
+                  attribution:
+                    type: string
+                  sourceTitle:
+                    type: string
+                  modules:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        [
+                          id,
+                          title,
+                          sourcePages,
+                          introduction,
+                          objectives,
+                          concepts,
+                          lessons,
+                          revisionNotes,
+                          practice,
+                        ]
+                      properties:
+                        id:
+                          type: string
+                        title:
+                          type: string
+                        sourcePages:
+                          type: string
+                        introduction:
+                          type: string
+                        objectives:
+                          type: array
+                          items:
+                            type: string
+                        concepts:
+                          type: array
+                          items:
+                            type: string
+                        lessons:
+                          type: array
+                          items:
+                            type: object
+                            required: [title, content, activity]
+                            properties:
+                              title:
+                                type: string
+                              content:
+                                type: string
+                              activity:
+                                type: string
+                        revisionNotes:
+                          type: array
+                          items:
+                            type: string
+                        practice:
+                          type: array
+                          items:
+                            type: string
+        '401':
+          description: Authentication required
+        '403':
+          description: No active course allocation for the user's organization
+        '404':
+          description: Course is missing or unpublished
   /api/dashboard/teacher:
     get:
       summary: Teacher dashboard metrics
@@ -272,4 +357,3 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-

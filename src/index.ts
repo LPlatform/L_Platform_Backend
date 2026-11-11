@@ -28,6 +28,9 @@ import { auditRoutes } from './routes/audit.routes.js';
 import { invitationRoutes } from './routes/invitations.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
 import { reportRoutes } from './routes/reports.routes.js';
+import { learningRoutes } from './routes/learning.routes.js';
+import { assessmentRoutes } from './routes/assessment.routes.js';
+import { lmsRoutes } from './routes/lms.routes.js';
 
 const app = fastify({
   logger: {
@@ -121,6 +124,9 @@ await app.register(auditRoutes);
 await app.register(invitationRoutes);
 await app.register(settingsRoutes);
 await app.register(reportRoutes);
+await app.register(learningRoutes);
+await app.register(assessmentRoutes);
+await app.register(lmsRoutes);
 
 // Global error handler
 app.setErrorHandler((error: any, request, reply) => {

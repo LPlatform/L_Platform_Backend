@@ -118,4 +118,3 @@ export async function testCaseRoutes(app: FastifyInstance) {
     },
   );
 }
-

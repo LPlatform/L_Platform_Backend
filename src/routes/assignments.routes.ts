@@ -229,7 +229,10 @@ export async function assignmentRoutes(app: FastifyInstance) {
           ),
         });
         if (!membership) throw Errors.forbidden('You are not assigned to this section');
-      } else if (request.user!.role === 'ORGANIZATION_ADMIN' && section.class.organizationId !== orgId) {
+      } else if (
+        request.user!.role === 'ORGANIZATION_ADMIN' &&
+        section.class.organizationId !== orgId
+      ) {
         throw Errors.forbidden('Access denied to this section');
       }
 
@@ -241,7 +244,12 @@ export async function assignmentRoutes(app: FastifyInstance) {
         if (linkedQuestions.length !== new Set(body.questionIds).size) {
           throw Errors.badRequest('One or more questions do not exist');
         }
-        if (request.user!.role !== 'PLATFORM_ADMIN' && linkedQuestions.some((question) => question.organizationId && question.organizationId !== orgId)) {
+        if (
+          request.user!.role !== 'PLATFORM_ADMIN' &&
+          linkedQuestions.some(
+            (question) => question.organizationId && question.organizationId !== orgId,
+          )
+        ) {
           throw Errors.forbidden('A question belongs to a different organization');
         }
       }
@@ -392,26 +400,26 @@ async function assertAssignmentAccess(
     if (user.organizationId === assignment.organizationId) return;
     throw Errors.forbidden('Access denied');
   }
-  const membership = user.role === 'STUDENT'
-    ? await db.query.studentSectionMemberships.findFirst({
-        where: and(
-          eq(studentSectionMemberships.sectionId, assignment.sectionId),
-          eq(studentSectionMemberships.studentId, user.userId),
-          eq(studentSectionMemberships.status, 'ACTIVE'),
-        ),
-      })
-    : user.role === 'TEACHER'
-      ? await db.query.teacherSectionMemberships.findFirst({
+  const membership =
+    user.role === 'STUDENT'
+      ? await db.query.studentSectionMemberships.findFirst({
           where: and(
-            eq(teacherSectionMemberships.sectionId, assignment.sectionId),
-            eq(teacherSectionMemberships.teacherId, user.userId),
-            eq(teacherSectionMemberships.status, 'ACTIVE'),
+            eq(studentSectionMemberships.sectionId, assignment.sectionId),
+            eq(studentSectionMemberships.studentId, user.userId),
+            eq(studentSectionMemberships.status, 'ACTIVE'),
           ),
         })
-      : null;
+      : user.role === 'TEACHER'
+        ? await db.query.teacherSectionMemberships.findFirst({
+            where: and(
+              eq(teacherSectionMemberships.sectionId, assignment.sectionId),
+              eq(teacherSectionMemberships.teacherId, user.userId),
+              eq(teacherSectionMemberships.status, 'ACTIVE'),
+            ),
+          })
+        : null;
   if (!membership) throw Errors.forbidden('Access denied to this assignment');
   if (user.role === 'STUDENT' && !['PUBLISHED', 'CLOSED'].includes(assignment.status)) {
     throw Errors.forbidden('This assignment is not available');
   }
 }
-

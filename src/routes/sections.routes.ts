@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
-import { eq, ilike, and, sql, desc, inArray } from 'drizzle-orm';
+import { eq, ilike, and, sql, desc, asc, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import {
   sections,
@@ -98,7 +98,11 @@ export async function sectionRoutes(app: FastifyInstance) {
 
           return {
             ...sec,
+            publicId: sec.id.toUpperCase(),
+            joinCode: sec.id.toUpperCase(),
             className: sec.class?.name || 'Unknown',
+            classGrade: sec.class?.grade || '',
+            academicYear: sec.class?.academicYear || '',
             organizationId: sec.class?.organizationId,
             organizationName: sec.class?.organization?.name || 'Unknown',
             studentCount: studentCountRes[0]?.count || 0,
@@ -152,7 +156,11 @@ export async function sectionRoutes(app: FastifyInstance) {
 
     return reply.send({
       ...sec,
+      publicId: sec.id.toUpperCase(),
+      joinCode: sec.id.toUpperCase(),
       className: sec.class?.name || 'Unknown',
+      classGrade: sec.class?.grade || '',
+      academicYear: sec.class?.academicYear || '',
       organizationId: sec.class?.organizationId,
       organizationName: sec.class?.organization?.name || 'Unknown',
       studentCount: studentCountRes[0]?.count || 0,
@@ -198,7 +206,8 @@ export async function sectionRoutes(app: FastifyInstance) {
           eq(teacherSectionMemberships.sectionId, id),
           eq(teacherSectionMemberships.status, 'ACTIVE'),
         ),
-      );
+      )
+      .orderBy(asc(teacherSectionMemberships.assignedAt), asc(teacherSectionMemberships.id));
 
     return reply.send({
       students: studentMemberships.map((m) => ({
@@ -206,10 +215,11 @@ export async function sectionRoutes(app: FastifyInstance) {
         name: `${m.student.firstName} ${m.student.lastName}`,
         joinedAt: m.joinedAt,
       })),
-      teachers: teacherMemberships.map((m) => ({
+      teachers: teacherMemberships.map((m, index) => ({
         ...m.teacher,
         name: `${m.teacher.firstName} ${m.teacher.lastName}`,
         assignedAt: m.assignedAt,
+        teacherRole: index === 0 ? ('PRIMARY' as const) : ('CO_TEACHER' as const),
       })),
     });
   });
@@ -437,4 +447,3 @@ async function assertSectionAccess(
   }
   throw Errors.forbidden('Access denied to this section');
 }
-

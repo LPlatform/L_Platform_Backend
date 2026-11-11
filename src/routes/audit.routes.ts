@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, desc, sql, ilike } from 'drizzle-orm';
+import { eq, and, desc, sql, ilike, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { auditLogs } from '../db/schema/index.js';
+import { auditLogs, organizations, users } from '../db/schema/index.js';
 import { requireRole } from '../middleware/auth.js';
 
 export async function auditRoutes(app: FastifyInstance) {
@@ -28,7 +28,16 @@ export async function auditRoutes(app: FastifyInstance) {
       }
       if (action && action !== 'ALL') conditions.push(eq(auditLogs.action, action));
       if (entityType && entityType !== 'ALL') conditions.push(eq(auditLogs.entityType, entityType));
-      if (search) conditions.push(ilike(auditLogs.userEmail, `%${search}%`));
+      if (search)
+        conditions.push(
+          or(
+            ilike(auditLogs.userEmail, `%${search}%`),
+            ilike(auditLogs.action, `%${search}%`),
+            ilike(auditLogs.entityType, `%${search}%`),
+            ilike(auditLogs.entityId, `%${search}%`),
+            sql`${auditLogs.details}::text ILIKE ${`%${search}%`}`,
+          ),
+        );
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -45,8 +54,43 @@ export async function auditRoutes(app: FastifyInstance) {
         .where(whereClause);
       const total = totalResult[0]?.count || 0;
 
+      const items = await Promise.all(
+        list.map(async (entry) => {
+          const [actor, organization] = await Promise.all([
+            entry.userId
+              ? db.query.users.findFirst({ where: eq(users.id, entry.userId) })
+              : undefined,
+            entry.organizationId
+              ? db.query.organizations.findFirst({
+                  where: eq(organizations.id, entry.organizationId),
+                })
+              : undefined,
+          ]);
+          const details = (entry.details ?? {}) as Record<string, unknown>;
+          return {
+            id: entry.id,
+            actorId: entry.userId ?? 'system',
+            actorName: actor
+              ? `${actor.firstName} ${actor.lastName}`.trim()
+              : (entry.userEmail ?? 'System'),
+            action: entry.action,
+            entityType: entry.entityType,
+            entityId: entry.entityId ?? '',
+            entityLabel: String(
+              details.name ?? details.title ?? entry.entityId ?? entry.entityType,
+            ),
+            organizationId: entry.organizationId,
+            organizationName: organization?.name ?? null,
+            status: 'SUCCESS' as const,
+            metadata: details,
+            correlationId: entry.id,
+            createdAt: entry.createdAt.toISOString(),
+          };
+        }),
+      );
+
       return reply.send({
-        items: list,
+        items,
         total,
         page,
         pageSize,
@@ -55,4 +99,3 @@ export async function auditRoutes(app: FastifyInstance) {
     },
   );
 }
-

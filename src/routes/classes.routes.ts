@@ -2,9 +2,72 @@ import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { eq, ilike, and, sql, desc, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { classes, sections, studentSectionMemberships } from '../db/schema/index.js';
+import {
+  classes,
+  sections,
+  organizations,
+  studentSectionMemberships,
+  teacherSectionMemberships,
+  courseAllocations,
+} from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
 import { authenticate, requireRole, checkTenantAccess } from '../middleware/auth.js';
+
+async function getClassStats(classId: string) {
+  const sectionRows = await db
+    .select({ id: sections.id })
+    .from(sections)
+    .where(eq(sections.classId, classId));
+  const sectionIds = sectionRows.map((section) => section.id);
+  if (sectionIds.length === 0) {
+    return { sectionCount: 0, studentCount: 0, teacherCount: 0, courseCount: 0 };
+  }
+
+  const [students, teachers, courses] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(distinct student_id)::int` })
+      .from(studentSectionMemberships)
+      .where(
+        and(
+          inArray(studentSectionMemberships.sectionId, sectionIds),
+          eq(studentSectionMemberships.status, 'ACTIVE'),
+        ),
+      ),
+    db
+      .select({ count: sql<number>`count(distinct teacher_id)::int` })
+      .from(teacherSectionMemberships)
+      .where(
+        and(
+          inArray(teacherSectionMemberships.sectionId, sectionIds),
+          eq(teacherSectionMemberships.status, 'ACTIVE'),
+        ),
+      ),
+    db
+      .select({ count: sql<number>`count(distinct course_id)::int` })
+      .from(courseAllocations)
+      .where(
+        and(
+          inArray(courseAllocations.sectionId, sectionIds),
+          eq(courseAllocations.status, 'ACTIVE'),
+        ),
+      ),
+  ]);
+
+  return {
+    sectionCount: sectionIds.length,
+    studentCount: students[0]?.count || 0,
+    teacherCount: teachers[0]?.count || 0,
+    courseCount: courses[0]?.count || 0,
+  };
+}
+
+function toClassDto(
+  academicClass: typeof classes.$inferSelect,
+  organizationName: string,
+  stats: Awaited<ReturnType<typeof getClassStats>>,
+) {
+  return { ...academicClass, publicId: academicClass.id.toUpperCase(), organizationName, ...stats };
+}
 
 export async function classRoutes(app: FastifyInstance) {
   // GET /api/classes
@@ -72,12 +135,8 @@ export async function classRoutes(app: FastifyInstance) {
             studentCount = countResult[0]?.count || 0;
           }
 
-          return {
-            ...c,
-            organizationName: c.organization?.name || 'Unknown',
-            sectionCount: secList.length,
-            studentCount,
-          };
+          const stats = await getClassStats(c.id);
+          return toClassDto(c, c.organization?.name || 'Unknown', { ...stats, studentCount });
         }),
       );
 
@@ -123,11 +182,8 @@ export async function classRoutes(app: FastifyInstance) {
       throw Errors.forbidden('Access denied');
     }
 
-    return reply.send({
-      ...cls,
-      organizationName: cls.organization?.name || 'Unknown',
-      sectionCount: cls.sections.length,
-    });
+    const stats = await getClassStats(cls.id);
+    return reply.send(toClassDto(cls, cls.organization?.name || 'Unknown', stats));
   });
 
   // POST /api/classes
@@ -136,8 +192,8 @@ export async function classRoutes(app: FastifyInstance) {
     { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN')] },
     async (request, reply) => {
       const body = request.body as any;
-      if (!body.name || !body.grade || !body.academicYear) {
-        throw Errors.badRequest('Missing required fields: name, grade, academicYear');
+      if (!body.name || !body.academicYear) {
+        throw Errors.badRequest('Missing required fields: name, academicYear');
       }
 
       let orgId = body.organizationId;
@@ -151,14 +207,20 @@ export async function classRoutes(app: FastifyInstance) {
         id: classId,
         organizationId: orgId,
         name: body.name.trim(),
-        grade: body.grade.trim(),
+        grade:
+          typeof body.grade === 'string' && body.grade.trim()
+            ? body.grade.trim()
+            : body.name.trim(),
         academicYear: body.academicYear.trim(),
         description: body.description || null,
         status: body.status || 'ACTIVE',
       };
 
-      await db.insert(classes).values(newClass);
-      return reply.status(201).send(newClass);
+      const [created] = await db.insert(classes).values(newClass).returning();
+      const org = await db.query.organizations.findFirst({ where: eq(organizations.id, orgId) });
+      return reply
+        .status(201)
+        .send(toClassDto(created, org?.name || 'Unknown', await getClassStats(classId)));
     },
   );
 
@@ -209,4 +271,3 @@ export async function classRoutes(app: FastifyInstance) {
     },
   );
 }
-
