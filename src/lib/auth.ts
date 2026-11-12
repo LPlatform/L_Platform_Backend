@@ -1,15 +1,23 @@
 import argon2 from 'argon2';
 import crypto from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
+import { getJwtSecret } from './env.js';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'dev-super-secure-jwt-secret-key-at-least-32-chars-long!',
-);
+export const USER_ROLES = [
+  'PLATFORM_OWNER',
+  'PLATFORM_DEVELOPER',
+  'PLATFORM_ADMIN',
+  'ORGANIZATION_ADMIN',
+  'TEACHER',
+  'STUDENT',
+] as const;
+
+export type UserRole = (typeof USER_ROLES)[number];
 
 export interface TokenPayload {
   userId: string;
   email: string;
-  role: 'PLATFORM_ADMIN' | 'ORGANIZATION_ADMIN' | 'TEACHER' | 'STUDENT';
+  role: UserRole;
   organizationId: string | null;
   name: string;
 }
@@ -36,12 +44,12 @@ export async function createAccessToken(payload: TokenPayload): Promise<string> 
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(process.env.JWT_ACCESS_TOKEN_EXPIRY || '15m')
-    .sign(JWT_SECRET);
+    .sign(getJwtSecret());
 }
 
 export async function verifyAccessToken(token: string): Promise<TokenPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const { payload } = await jwtVerify(token, getJwtSecret());
     return payload as unknown as TokenPayload;
   } catch {
     return null;

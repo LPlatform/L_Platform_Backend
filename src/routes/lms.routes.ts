@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
 import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '../db/connection.js';
+import { runWithRlsContext } from '../db/rls-context.js';
 import {
   assignments,
   classes,
@@ -22,7 +23,12 @@ import {
   users,
 } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import {
+  authenticate,
+  isPlatformDeveloperRole,
+  isPlatformOwnerRole,
+  requireRole,
+} from '../middleware/auth.js';
 
 export function extractJoinCode(rawInput: string): string {
   const trimmed = rawInput.trim();
@@ -93,7 +99,9 @@ export async function lmsRoutes(app: FastifyInstance) {
     const user = request.user!;
     const conditions: any[] = [inArray(courses.status, ['PUBLISHED', 'ACTIVE'])];
 
-    if (user.role !== 'PLATFORM_ADMIN') {
+    if (isPlatformDeveloperRole(user.role)) {
+      conditions.push(sql`${courses.organizationId} IS NULL`);
+    } else if (!isPlatformOwnerRole(user.role)) {
       conditions.push(
         or(
           sql`${courses.organizationId} IS NULL`,
@@ -108,7 +116,7 @@ export async function lmsRoutes(app: FastifyInstance) {
     });
 
     let activeAllocatedCourseIds = new Set<string>();
-    if (user.organizationId) {
+    if (user.organizationId && !isPlatformDeveloperRole(user.role)) {
       const allocs = await db
         .select({ courseId: courseAllocations.courseId })
         .from(courseAllocations)
@@ -159,10 +167,15 @@ export async function lmsRoutes(app: FastifyInstance) {
         difficulty: c.difficulty,
         status: c.status === 'PUBLISHED' ? 'ACTIVE' : c.status,
         version: c.version,
+        estimatedMinutes: c.estimatedMinutes ?? null,
         isPlatformCourse,
+        accessModel: c.accessModel || (isPlatformCourse ? 'PLATFORM_FREE' : 'ORG_ALLOCATED'),
         scopeType: isPlatformCourse ? ('PLATFORM_FREE' as const) : ('SCHOOL' as const),
         accessEnabled:
-          user.role === 'PLATFORM_ADMIN' || isPlatformCourse || activeAllocatedCourseIds.has(c.id),
+          isPlatformOwnerRole(user.role) ||
+          isPlatformDeveloperRole(user.role) ||
+          isPlatformCourse ||
+          activeAllocatedCourseIds.has(c.id),
         hasInteractiveReader: c.id === 'crs-ai-readiness-001',
       };
     });
@@ -299,16 +312,18 @@ export async function lmsRoutes(app: FastifyInstance) {
       const normalized = extractJoinCode(String(request.body?.code ?? ''));
       if (!normalized) throw Errors.badRequest('Enter a valid class invitation code or link');
 
-      const sectionRows = await db.query.sections.findMany({
-        where: eq(sections.status, 'ACTIVE'),
-        with: { class: true },
+      const target = await runWithRlsContext({ systemContext: 'JOIN_LOOKUP' }, async () => {
+        const sectionRows = await db.query.sections.findMany({
+          where: eq(sections.status, 'ACTIVE'),
+          with: { class: true },
+        });
+        return sectionRows.find(
+          (sec) =>
+            sec.class.organizationId === user.organizationId &&
+            sec.class.status === 'ACTIVE' &&
+            sec.id.toLowerCase() === normalized,
+        );
       });
-      const target = sectionRows.find(
-        (sec) =>
-          sec.class.organizationId === user.organizationId &&
-          sec.class.status === 'ACTIVE' &&
-          sec.id.toLowerCase() === normalized,
-      );
 
       if (!target) {
         throw Errors.notFound(
@@ -409,13 +424,11 @@ export async function lmsRoutes(app: FastifyInstance) {
     { preHandler: [requireRole('STUDENT')] },
     async (request, reply) => {
       const user = request.user!;
-      if (!user.organizationId) return reply.status(403).send({ message: 'Organization required' });
 
       const attempt = await db.query.courseAssessmentAttempts.findFirst({
         where: and(
           eq(courseAssessmentAttempts.id, request.params.attemptId),
           eq(courseAssessmentAttempts.studentId, user.userId),
-          eq(courseAssessmentAttempts.organizationId, user.organizationId),
         ),
       });
       if (!attempt) return reply.status(404).send({ message: 'Attempt not found' });
@@ -453,30 +466,60 @@ export async function lmsRoutes(app: FastifyInstance) {
 
       const savedAnswers: Record<string, unknown> = {};
       for (const ans of answerRows) {
-        savedAnswers[ans.questionId] = ans.response;
+        const rawResp = ans.response;
+        if (
+          rawResp &&
+          typeof rawResp === 'object' &&
+          !Array.isArray(rawResp) &&
+          'value' in (rawResp as Record<string, unknown>)
+        ) {
+          savedAnswers[ans.questionId] = (rawResp as Record<string, unknown>).value;
+        } else {
+          savedAnswers[ans.questionId] = rawResp;
+        }
       }
 
       return reply.send({
         attemptId: attempt.id,
         assignmentId: attempt.assignmentId,
         assessmentId: attempt.assessmentId,
+        assessmentKey: attempt.assignmentId ?? attempt.assessmentId,
+        scope: assessment?.scope ?? 'SECTION',
         title: assessment?.title ?? 'Assessment',
         instructions: assessment?.instructions ?? '',
         durationMinutes: assessment?.durationMinutes ?? null,
         totalMarks: attempt.totalMarks,
         passingMarks: assessment?.passingMarks ?? null,
         status: attempt.status,
-        questions: assessmentQuestions.map((row) =>
-          sanitizeAttemptQuestion(
+        questions: assessmentQuestions.map((row) => {
+          let qOpts = optByQ.get(row.link.questionId) ?? [];
+          if (qOpts.length === 0) {
+            const snap = (row.link.questionSnapshot ?? {}) as {
+              options?: Array<{
+                id?: string;
+                optionText?: string;
+                text?: string;
+                orderNum?: number;
+              }>;
+            };
+            if (Array.isArray(snap.options)) {
+              qOpts = snap.options.map((o, idx) => ({
+                id: String(o.id ?? `snap-${row.link.questionId}-${idx + 1}`),
+                optionText: String(o.optionText ?? o.text ?? ''),
+                orderNum: Number(o.orderNum ?? idx + 1),
+              }));
+            }
+          }
+          return sanitizeAttemptQuestion(
             {
               questionId: row.link.questionId,
               marks: row.link.marks,
               questionSnapshot: row.link.questionSnapshot,
               question: row.question ?? null,
             },
-            optByQ.get(row.link.questionId) ?? [],
-          ),
-        ),
+            qOpts,
+          );
+        }),
         savedAnswers,
       });
     },
@@ -488,7 +531,6 @@ export async function lmsRoutes(app: FastifyInstance) {
     { preHandler: [requireRole('STUDENT')] },
     async (request, reply) => {
       const user = request.user!;
-      if (!user.organizationId) return reply.send({ items: [] });
 
       const attemptRows = await db
         .select({ attempt: courseAssessmentAttempts, assessment: courseAssessments })
@@ -497,12 +539,7 @@ export async function lmsRoutes(app: FastifyInstance) {
           courseAssessments,
           eq(courseAssessments.id, courseAssessmentAttempts.assessmentId),
         )
-        .where(
-          and(
-            eq(courseAssessmentAttempts.studentId, user.userId),
-            eq(courseAssessmentAttempts.organizationId, user.organizationId),
-          ),
-        )
+        .where(eq(courseAssessmentAttempts.studentId, user.userId))
         .orderBy(desc(courseAssessmentAttempts.createdAt));
 
       const items = await Promise.all(
@@ -520,25 +557,47 @@ export async function lmsRoutes(app: FastifyInstance) {
           }> = [];
 
           if (attempt.status === 'RELEASED') {
-            const ansRows = await db
-              .select({ answer: courseAssessmentAnswers, question: questions })
-              .from(courseAssessmentAnswers)
-              .innerJoin(questions, eq(questions.id, courseAssessmentAnswers.questionId))
-              .where(eq(courseAssessmentAnswers.attemptId, attempt.id));
-            breakdown = ansRows.map(({ answer, question }) => ({
-              questionId: question.id,
-              prompt: question.description,
-              type: question.questionType,
-              maxMarks: question.marks,
-              marksAwarded: answer.marksAwarded,
-              feedback: answer.feedback ?? '',
-              status: answer.status,
-              studentResponse: answer.response,
-            }));
+            const [ansRows, aqRows] = await Promise.all([
+              db
+                .select({ answer: courseAssessmentAnswers, question: questions })
+                .from(courseAssessmentAnswers)
+                .leftJoin(questions, eq(questions.id, courseAssessmentAnswers.questionId))
+                .where(eq(courseAssessmentAnswers.attemptId, attempt.id)),
+              db
+                .select()
+                .from(courseAssessmentQuestions)
+                .where(eq(courseAssessmentQuestions.assessmentId, attempt.assessmentId)),
+            ]);
+            const linkByQ = new Map(aqRows.map((aq) => [aq.questionId, aq]));
+
+            breakdown = ansRows.map(({ answer, question }) => {
+              const link = linkByQ.get(answer.questionId);
+              const snap = (link?.questionSnapshot ?? {}) as Record<string, unknown>;
+              const rawResp = answer.response;
+              const unwrappedResp =
+                rawResp &&
+                typeof rawResp === 'object' &&
+                !Array.isArray(rawResp) &&
+                'value' in (rawResp as Record<string, unknown>)
+                  ? (rawResp as Record<string, unknown>).value
+                  : rawResp;
+              return {
+                questionId: answer.questionId,
+                prompt: String(question?.description ?? snap.description ?? snap.title ?? ''),
+                type: String(question?.questionType ?? snap.questionType ?? 'MCQ'),
+                maxMarks: link?.marks ?? question?.marks ?? 10,
+                marksAwarded: answer.marksAwarded,
+                feedback: answer.feedback ?? '',
+                status: answer.status,
+                studentResponse: unwrappedResp,
+              };
+            });
           }
 
           return {
             ...base,
+            assessmentKey: attempt.assignmentId ?? attempt.assessmentId,
+            scope: assessment.scope,
             title: assessment.title,
             moduleId: assessment.moduleId,
             passingMarks: assessment.passingMarks,
@@ -551,27 +610,52 @@ export async function lmsRoutes(app: FastifyInstance) {
     },
   );
 
-  // GET /api/assessments - List course assessments for Admin & Teacher portals
+  // GET /api/assessments - List course assessments for Admin, Developer & Teacher portals
   app.get(
     '/api/assessments',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const user = request.user!;
+      const isOwner = isPlatformOwnerRole(user.role);
+      const isDeveloper = isPlatformDeveloperRole(user.role);
+
+      const whereCondition = isOwner
+        ? undefined
+        : isDeveloper
+          ? and(
+              sql`${courseAssessments.organizationId} IS NULL`,
+              eq(courseAssessments.scope, 'PLATFORM'),
+            )
+          : or(
+              and(
+                sql`${courseAssessments.organizationId} IS NULL`,
+                eq(courseAssessments.scope, 'PLATFORM'),
+                eq(courseAssessments.status, 'PUBLISHED'),
+              ),
+              user.organizationId
+                ? eq(courseAssessments.organizationId, user.organizationId)
+                : sql`FALSE`,
+            );
+
       const rows = await db
         .select({ assessment: courseAssessments, course: courses })
         .from(courseAssessments)
         .innerJoin(courses, eq(courses.id, courseAssessments.courseId))
-        .where(
-          user.role === 'PLATFORM_ADMIN'
-            ? undefined
-            : or(
-                sql`${courses.organizationId} IS NULL`,
-                user.organizationId ? eq(courses.organizationId, user.organizationId) : sql`FALSE`,
-              ),
-        )
+        .where(whereCondition)
         .orderBy(desc(courseAssessments.createdAt));
 
       let teacherSectionIds: string[] = [];
+      let teacherStudentIds: Set<string> | null = null;
       if (user.role === 'TEACHER') {
         const mems = await db
           .select({ sectionId: teacherSectionMemberships.sectionId })
@@ -583,6 +667,20 @@ export async function lmsRoutes(app: FastifyInstance) {
             ),
           );
         teacherSectionIds = mems.map((m) => m.sectionId);
+        if (teacherSectionIds.length > 0) {
+          const stMems = await db
+            .select({ studentId: studentSectionMemberships.studentId })
+            .from(studentSectionMemberships)
+            .where(
+              and(
+                inArray(studentSectionMemberships.sectionId, teacherSectionIds),
+                eq(studentSectionMemberships.status, 'ACTIVE'),
+              ),
+            );
+          teacherStudentIds = new Set(stMems.map((s) => s.studentId));
+        } else {
+          teacherStudentIds = new Set();
+        }
       }
 
       const items = await Promise.all(
@@ -592,34 +690,48 @@ export async function lmsRoutes(app: FastifyInstance) {
               .select({ count: sql<number>`count(*)::int` })
               .from(courseAssessmentQuestions)
               .where(eq(courseAssessmentQuestions.assessmentId, assessment.id)),
-            db
-              .select({
-                assignment: courseAssessmentAssignments,
-                section: sections,
-                classRow: classes,
-              })
-              .from(courseAssessmentAssignments)
-              .innerJoin(sections, eq(sections.id, courseAssessmentAssignments.sectionId))
-              .innerJoin(classes, eq(classes.id, sections.classId))
-              .where(
-                and(
-                  eq(courseAssessmentAssignments.assessmentId, assessment.id),
-                  user.role !== 'PLATFORM_ADMIN' && user.organizationId
-                    ? eq(courseAssessmentAssignments.organizationId, user.organizationId)
-                    : undefined,
-                ),
-              ),
-            db
-              .select({ status: courseAssessmentAttempts.status })
-              .from(courseAssessmentAttempts)
-              .where(
-                and(
-                  eq(courseAssessmentAttempts.assessmentId, assessment.id),
-                  user.role !== 'PLATFORM_ADMIN' && user.organizationId
-                    ? eq(courseAssessmentAttempts.organizationId, user.organizationId)
-                    : undefined,
-                ),
-              ),
+            isDeveloper
+              ? Promise.resolve([])
+              : db
+                  .select({
+                    assignment: courseAssessmentAssignments,
+                    section: sections,
+                    classRow: classes,
+                  })
+                  .from(courseAssessmentAssignments)
+                  .innerJoin(sections, eq(sections.id, courseAssessmentAssignments.sectionId))
+                  .innerJoin(classes, eq(classes.id, sections.classId))
+                  .where(
+                    and(
+                      eq(courseAssessmentAssignments.assessmentId, assessment.id),
+                      !isOwner && user.organizationId
+                        ? eq(courseAssessmentAssignments.organizationId, user.organizationId)
+                        : undefined,
+                    ),
+                  ),
+            isDeveloper
+              ? Promise.resolve([])
+              : db
+                  .select({
+                    status: courseAssessmentAttempts.status,
+                    studentId: courseAssessmentAttempts.studentId,
+                    assignmentSectionId: courseAssessmentAssignments.sectionId,
+                  })
+                  .from(courseAssessmentAttempts)
+                  .leftJoin(
+                    courseAssessmentAssignments,
+                    eq(courseAssessmentAssignments.id, courseAssessmentAttempts.assignmentId),
+                  )
+                  .where(
+                    and(
+                      eq(courseAssessmentAttempts.assessmentId, assessment.id),
+                      !isOwner
+                        ? user.organizationId
+                          ? eq(courseAssessmentAttempts.organizationId, user.organizationId)
+                          : sql`FALSE`
+                        : undefined,
+                    ),
+                  ),
           ]);
 
           const visibleAssigns =
@@ -627,10 +739,21 @@ export async function lmsRoutes(app: FastifyInstance) {
               ? assignRows.filter((a) => teacherSectionIds.includes(a.section.id))
               : assignRows;
 
+          const visibleAttempts =
+            user.role === 'TEACHER'
+              ? attemptRows.filter(
+                  (a) =>
+                    (a.assignmentSectionId && teacherSectionIds.includes(a.assignmentSectionId)) ||
+                    (!a.assignmentSectionId && teacherStudentIds?.has(a.studentId)),
+                )
+              : attemptRows;
+
           return {
             id: assessment.id,
             courseId: assessment.courseId,
             courseTitle: course.title,
+            organizationId: assessment.organizationId,
+            scope: assessment.scope,
             moduleId: assessment.moduleId,
             title: assessment.title,
             instructions: assessment.instructions,
@@ -647,8 +770,10 @@ export async function lmsRoutes(app: FastifyInstance) {
               className: a.classRow.name,
               dueAt: a.assignment.dueAt?.toISOString() || null,
             })),
-            attemptCount: attemptRows.length,
-            pendingReviewCount: attemptRows.filter((a) => a.status === 'PENDING_REVIEW').length,
+            attemptCount: isDeveloper ? 0 : visibleAttempts.length,
+            pendingReviewCount: isDeveloper
+              ? 0
+              : visibleAttempts.filter((a) => a.status === 'PENDING_REVIEW').length,
             createdAt: assessment.createdAt.toISOString(),
           };
         }),
@@ -661,9 +786,22 @@ export async function lmsRoutes(app: FastifyInstance) {
   // GET /api/assessments/:id - Assessment detail, questions, section assignments & scoped attempts
   app.get<{ Params: { id: string } }>(
     '/api/assessments/:id',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const user = request.user!;
+      const isOwner = isPlatformOwnerRole(user.role);
+      const isDeveloper = isPlatformDeveloperRole(user.role);
+
       const assessment = await db.query.courseAssessments.findFirst({
         where: eq(courseAssessments.id, request.params.id),
       });
@@ -672,15 +810,27 @@ export async function lmsRoutes(app: FastifyInstance) {
       const course = await db.query.courses.findFirst({
         where: eq(courses.id, assessment.courseId),
       });
-      if (
-        user.role !== 'PLATFORM_ADMIN' &&
-        course?.organizationId &&
-        course.organizationId !== user.organizationId
-      ) {
-        throw Errors.forbidden('Access denied to this assessment');
+      if (isDeveloper) {
+        if (assessment.organizationId !== null || assessment.scope !== 'PLATFORM') {
+          throw Errors.forbidden('Developers can only access platform-scoped assessments');
+        }
+      } else if (!isOwner) {
+        const isPublicPlatform =
+          assessment.scope === 'PLATFORM' &&
+          assessment.organizationId === null &&
+          assessment.status === 'PUBLISHED';
+        const isSameOrg = Boolean(
+          user.organizationId &&
+          (assessment.organizationId === user.organizationId ||
+            (!assessment.organizationId && course?.organizationId === user.organizationId)),
+        );
+        if (!isPublicPlatform && !isSameOrg) {
+          throw Errors.forbidden('Access denied to this assessment');
+        }
       }
 
       let teacherSectionIds: string[] | null = null;
+      let teacherStudentIds: Set<string> | null = null;
       if (user.role === 'TEACHER') {
         const mems = await db
           .select({ sectionId: teacherSectionMemberships.sectionId })
@@ -692,6 +842,20 @@ export async function lmsRoutes(app: FastifyInstance) {
             ),
           );
         teacherSectionIds = mems.map((m) => m.sectionId);
+        if (teacherSectionIds.length > 0) {
+          const stMems = await db
+            .select({ studentId: studentSectionMemberships.studentId })
+            .from(studentSectionMemberships)
+            .where(
+              and(
+                inArray(studentSectionMemberships.sectionId, teacherSectionIds),
+                eq(studentSectionMemberships.status, 'ACTIVE'),
+              ),
+            );
+          teacherStudentIds = new Set(stMems.map((s) => s.studentId));
+        } else {
+          teacherStudentIds = new Set();
+        }
       }
 
       const [attachedQuestions, assignRows, attemptRows] = await Promise.all([
@@ -701,47 +865,61 @@ export async function lmsRoutes(app: FastifyInstance) {
           .innerJoin(questions, eq(questions.id, courseAssessmentQuestions.questionId))
           .where(eq(courseAssessmentQuestions.assessmentId, assessment.id))
           .orderBy(asc(courseAssessmentQuestions.orderNum)),
-        db
-          .select({ assignment: courseAssessmentAssignments, section: sections, classRow: classes })
-          .from(courseAssessmentAssignments)
-          .innerJoin(sections, eq(sections.id, courseAssessmentAssignments.sectionId))
-          .innerJoin(classes, eq(classes.id, sections.classId))
-          .where(
-            and(
-              eq(courseAssessmentAssignments.assessmentId, assessment.id),
-              user.role !== 'PLATFORM_ADMIN' && user.organizationId
-                ? eq(courseAssessmentAssignments.organizationId, user.organizationId)
-                : undefined,
-            ),
-          ),
-        db
-          .select({
-            attempt: courseAssessmentAttempts,
-            student: users,
-            assignment: courseAssessmentAssignments,
-          })
-          .from(courseAssessmentAttempts)
-          .innerJoin(users, eq(users.id, courseAssessmentAttempts.studentId))
-          .innerJoin(
-            courseAssessmentAssignments,
-            eq(courseAssessmentAssignments.id, courseAssessmentAttempts.assignmentId),
-          )
-          .where(
-            and(
-              eq(courseAssessmentAttempts.assessmentId, assessment.id),
-              user.role !== 'PLATFORM_ADMIN' && user.organizationId
-                ? eq(courseAssessmentAttempts.organizationId, user.organizationId)
-                : undefined,
-            ),
-          )
-          .orderBy(desc(courseAssessmentAttempts.createdAt)),
+        isDeveloper
+          ? Promise.resolve([])
+          : db
+              .select({
+                assignment: courseAssessmentAssignments,
+                section: sections,
+                classRow: classes,
+              })
+              .from(courseAssessmentAssignments)
+              .innerJoin(sections, eq(sections.id, courseAssessmentAssignments.sectionId))
+              .innerJoin(classes, eq(classes.id, sections.classId))
+              .where(
+                and(
+                  eq(courseAssessmentAssignments.assessmentId, assessment.id),
+                  !isOwner && user.organizationId
+                    ? eq(courseAssessmentAssignments.organizationId, user.organizationId)
+                    : undefined,
+                ),
+              ),
+        isDeveloper
+          ? Promise.resolve([])
+          : db
+              .select({
+                attempt: courseAssessmentAttempts,
+                student: users,
+                assignment: courseAssessmentAssignments,
+              })
+              .from(courseAssessmentAttempts)
+              .innerJoin(users, eq(users.id, courseAssessmentAttempts.studentId))
+              .leftJoin(
+                courseAssessmentAssignments,
+                eq(courseAssessmentAssignments.id, courseAssessmentAttempts.assignmentId),
+              )
+              .where(
+                and(
+                  eq(courseAssessmentAttempts.assessmentId, assessment.id),
+                  !isOwner
+                    ? user.organizationId
+                      ? eq(courseAssessmentAttempts.organizationId, user.organizationId)
+                      : sql`FALSE`
+                    : undefined,
+                ),
+              )
+              .orderBy(desc(courseAssessmentAttempts.createdAt)),
       ]);
 
       const scopedAssigns = teacherSectionIds
         ? assignRows.filter((row) => teacherSectionIds!.includes(row.section.id))
         : assignRows;
       const scopedAttempts = teacherSectionIds
-        ? attemptRows.filter((row) => teacherSectionIds!.includes(row.assignment.sectionId))
+        ? attemptRows.filter(
+            (row) =>
+              (row.assignment && teacherSectionIds!.includes(row.assignment.sectionId)) ||
+              (!row.assignment && teacherStudentIds?.has(row.student.id)),
+          )
         : attemptRows;
 
       return reply.send({
@@ -765,17 +943,19 @@ export async function lmsRoutes(app: FastifyInstance) {
           dueAt: row.assignment.dueAt?.toISOString() || null,
           status: row.assignment.status,
         })),
-        attempts: scopedAttempts.map(({ attempt, student }) => ({
-          id: attempt.id,
-          studentId: student.id,
-          studentName: `${student.firstName} ${student.lastName}`.trim(),
-          studentEmail: student.email,
-          status: attempt.status,
-          score: attempt.score,
-          totalMarks: attempt.totalMarks,
-          submittedAt: attempt.submittedAt?.toISOString() || null,
-          releasedAt: attempt.releasedAt?.toISOString() || null,
-        })),
+        attempts: isDeveloper
+          ? []
+          : scopedAttempts.map(({ attempt, student }) => ({
+              id: attempt.id,
+              studentId: student.id,
+              studentName: `${student.firstName} ${student.lastName}`.trim(),
+              studentEmail: student.email,
+              status: attempt.status,
+              score: attempt.score,
+              totalMarks: attempt.totalMarks,
+              submittedAt: attempt.submittedAt?.toISOString() || null,
+              releasedAt: attempt.releasedAt?.toISOString() || null,
+            })),
       });
     },
   );
@@ -783,9 +963,21 @@ export async function lmsRoutes(app: FastifyInstance) {
   // POST /api/assessments - Create course assessment & optionally assign to sections
   app.post(
     '/api/assessments',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const user = request.user!;
+      const isOwner = isPlatformOwnerRole(user.role);
+      const isDeveloper = isPlatformDeveloperRole(user.role);
       const body = request.body as {
         courseId?: string;
         moduleId?: string;
@@ -795,6 +987,7 @@ export async function lmsRoutes(app: FastifyInstance) {
         durationMinutes?: number | null;
         attemptLimit?: number;
         status?: 'DRAFT' | 'PUBLISHED';
+        scope?: 'PLATFORM' | 'SECTION';
         questionIds?: string[];
         sectionIds?: string[];
         dueAt?: string | null;
@@ -811,11 +1004,60 @@ export async function lmsRoutes(app: FastifyInstance) {
       const course = await db.query.courses.findFirst({ where: eq(courses.id, body.courseId) });
       if (!course) throw Errors.notFound('Course not found');
 
+      if (isDeveloper && course.organizationId !== null) {
+        throw Errors.forbidden('Developers can only author assessments for platform courses');
+      }
+      if (
+        !isOwner &&
+        !isDeveloper &&
+        course.organizationId &&
+        course.organizationId !== user.organizationId
+      ) {
+        throw Errors.forbidden('Course belongs to another organization');
+      }
+
+      const sectionIds = Array.from(new Set(body.sectionIds ?? []));
+      if (isDeveloper && sectionIds.length > 0) {
+        throw Errors.forbidden('Developers cannot assign assessments to organization sections');
+      }
+
+      const isPlatformStaff = isOwner || isDeveloper;
+      const resolvedScope: 'PLATFORM' | 'SECTION' =
+        isPlatformStaff &&
+        course.organizationId === null &&
+        sectionIds.length === 0 &&
+        body.scope !== 'SECTION'
+          ? 'PLATFORM'
+          : 'SECTION';
+      const resolvedOrgId =
+        resolvedScope === 'PLATFORM' ? null : (course.organizationId ?? user.organizationId);
+
+      if (resolvedScope === 'SECTION' && !resolvedOrgId && !isOwner) {
+        throw Errors.forbidden('Organization membership required for school assessments');
+      }
+
       const selectedQuestions = await db.query.questions.findMany({
         where: inArray(questions.id, qIds),
       });
       if (selectedQuestions.length !== qIds.length) {
         throw Errors.badRequest('One or more selected questions do not exist');
+      }
+      for (const q of selectedQuestions) {
+        if (q.organizationId && !isOwner && q.organizationId !== user.organizationId) {
+          throw Errors.forbidden('One or more selected questions belong to another organization');
+        }
+      }
+
+      const optRows = await db
+        .select()
+        .from(questionOptions)
+        .where(inArray(questionOptions.questionId, qIds))
+        .orderBy(asc(questionOptions.orderNum));
+      const optsByQ = new Map<string, typeof optRows>();
+      for (const opt of optRows) {
+        const list = optsByQ.get(opt.questionId) ?? [];
+        list.push(opt);
+        optsByQ.set(opt.questionId, list);
       }
 
       const totalMarks = selectedQuestions.reduce((sum, q) => sum + (q.marks || 10), 0);
@@ -828,6 +1070,8 @@ export async function lmsRoutes(app: FastifyInstance) {
           .values({
             id: assessmentId,
             courseId: course.id,
+            organizationId: resolvedOrgId,
+            scope: resolvedScope,
             moduleId: body.moduleId!.trim(),
             version: 1,
             title: body.title!.trim(),
@@ -844,6 +1088,7 @@ export async function lmsRoutes(app: FastifyInstance) {
 
         for (let idx = 0; idx < qIds.length; idx++) {
           const q = selectedQuestions.find((item) => item.id === qIds[idx])!;
+          const qOpts = optsByQ.get(q.id) ?? [];
           await tx.insert(courseAssessmentQuestions).values({
             id: `caq-${uuidv4().slice(0, 8)}`,
             assessmentId: inserted.id,
@@ -856,11 +1101,20 @@ export async function lmsRoutes(app: FastifyInstance) {
               questionType: q.questionType,
               topic: q.topic,
               difficulty: q.difficulty,
+              answerKey: q.answerKey,
+              explanation: q.explanation,
+              rubric: q.rubric,
+              sourcePage: q.sourcePage,
+              options: qOpts.map((o) => ({
+                id: o.id,
+                optionText: o.optionText,
+                orderNum: o.orderNum,
+                isCorrect: o.isCorrect,
+              })),
             },
           });
         }
 
-        const sectionIds = Array.from(new Set(body.sectionIds ?? []));
         if (sectionIds.length > 0 && status === 'PUBLISHED') {
           for (const secId of sectionIds) {
             const sec = await tx.query.sections.findFirst({
@@ -868,10 +1122,7 @@ export async function lmsRoutes(app: FastifyInstance) {
               with: { class: true },
             });
             if (!sec) throw Errors.notFound(`Section ${secId} not found`);
-            if (
-              user.role !== 'PLATFORM_ADMIN' &&
-              sec.class.organizationId !== user.organizationId
-            ) {
+            if (!isOwner && sec.class.organizationId !== user.organizationId) {
               throw Errors.forbidden('Section belongs to another organization');
             }
             if (user.role === 'TEACHER') {
@@ -906,14 +1157,96 @@ export async function lmsRoutes(app: FastifyInstance) {
   // PATCH /api/assessments/:id/publish
   app.patch<{ Params: { id: string } }>(
     '/api/assessments/:id/publish',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
-      const [updated] = await db
-        .update(courseAssessments)
-        .set({ status: 'PUBLISHED', publishedAt: new Date(), updatedAt: new Date() })
-        .where(eq(courseAssessments.id, request.params.id))
-        .returning();
-      if (!updated) throw Errors.notFound('Assessment not found');
+      const user = request.user!;
+      const isOwner = isPlatformOwnerRole(user.role);
+      const isDeveloper = isPlatformDeveloperRole(user.role);
+
+      const existing = await db.query.courseAssessments.findFirst({
+        where: eq(courseAssessments.id, request.params.id),
+      });
+      if (!existing) throw Errors.notFound('Assessment not found');
+
+      if (existing.organizationId === null || existing.scope === 'PLATFORM') {
+        if (!isOwner && !isDeveloper) {
+          throw Errors.forbidden('Only platform staff can publish platform assessments');
+        }
+      } else {
+        if (isDeveloper) {
+          throw Errors.forbidden('Developers cannot publish organization assessments');
+        }
+        if (!isOwner && existing.organizationId !== user.organizationId) {
+          throw Errors.forbidden('Assessment belongs to another organization');
+        }
+      }
+
+      const updated = await db.transaction(async (tx) => {
+        const links = await tx
+          .select({ link: courseAssessmentQuestions, question: questions })
+          .from(courseAssessmentQuestions)
+          .innerJoin(questions, eq(questions.id, courseAssessmentQuestions.questionId))
+          .where(eq(courseAssessmentQuestions.assessmentId, existing.id));
+
+        const qIds = links.map((l) => l.question.id);
+        const optRows = qIds.length
+          ? await tx
+              .select()
+              .from(questionOptions)
+              .where(inArray(questionOptions.questionId, qIds))
+              .orderBy(asc(questionOptions.orderNum))
+          : [];
+        const optsByQ = new Map<string, typeof optRows>();
+        for (const opt of optRows) {
+          const list = optsByQ.get(opt.questionId) ?? [];
+          list.push(opt);
+          optsByQ.set(opt.questionId, list);
+        }
+
+        for (const { link, question: q } of links) {
+          const qOpts = optsByQ.get(q.id) ?? [];
+          await tx
+            .update(courseAssessmentQuestions)
+            .set({
+              questionSnapshot: {
+                title: q.title,
+                description: q.description,
+                questionType: q.questionType,
+                topic: q.topic,
+                difficulty: q.difficulty,
+                answerKey: q.answerKey,
+                explanation: q.explanation,
+                rubric: q.rubric,
+                sourcePage: q.sourcePage,
+                options: qOpts.map((o) => ({
+                  id: o.id,
+                  optionText: o.optionText,
+                  orderNum: o.orderNum,
+                  isCorrect: o.isCorrect,
+                })),
+              },
+            })
+            .where(eq(courseAssessmentQuestions.id, link.id));
+        }
+
+        const [row] = await tx
+          .update(courseAssessments)
+          .set({ status: 'PUBLISHED', publishedAt: new Date(), updatedAt: new Date() })
+          .where(eq(courseAssessments.id, existing.id))
+          .returning();
+        return row;
+      });
+
       return reply.send(updated);
     },
   );
@@ -921,9 +1254,14 @@ export async function lmsRoutes(app: FastifyInstance) {
   // POST /api/assessments/:id/assign
   app.post<{ Params: { id: string }; Body: { sectionId?: string; dueAt?: string | null } }>(
     '/api/assessments/:id/assign',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole('PLATFORM_OWNER', 'PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER'),
+      ],
+    },
     async (request, reply) => {
       const user = request.user!;
+      const isOwner = isPlatformOwnerRole(user.role);
       const sectionId = request.body?.sectionId;
       if (!sectionId) throw Errors.badRequest('sectionId is required');
       const [assessment, section] = await Promise.all([
@@ -934,7 +1272,14 @@ export async function lmsRoutes(app: FastifyInstance) {
       ]);
       if (!assessment) throw Errors.notFound('Assessment not found');
       if (!section) throw Errors.notFound('Section not found');
-      if (user.role !== 'PLATFORM_ADMIN' && section.class.organizationId !== user.organizationId) {
+      if (
+        assessment.organizationId &&
+        !isOwner &&
+        assessment.organizationId !== user.organizationId
+      ) {
+        throw Errors.forbidden('Assessment belongs to another organization');
+      }
+      if (!isOwner && section.class.organizationId !== user.organizationId) {
         throw Errors.forbidden('Access denied to this section');
       }
       if (user.role === 'TEACHER') {
@@ -992,7 +1337,11 @@ export async function lmsRoutes(app: FastifyInstance) {
   // GET /api/teacher/students/:studentId/profile - Scoped teacher view of a student
   app.get<{ Params: { studentId: string } }>(
     '/api/teacher/students/:studentId/profile',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole('PLATFORM_OWNER', 'PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER'),
+      ],
+    },
     async (request, reply) => {
       const user = request.user!;
       const student = await db.query.users.findFirst({
@@ -1000,7 +1349,7 @@ export async function lmsRoutes(app: FastifyInstance) {
         with: { organization: true },
       });
       if (!student) throw Errors.notFound('Student not found');
-      if (user.role !== 'PLATFORM_ADMIN' && student.organizationId !== user.organizationId) {
+      if (!isPlatformOwnerRole(user.role) && student.organizationId !== user.organizationId) {
         throw Errors.forbidden('Access denied');
       }
 
@@ -1068,7 +1417,9 @@ export async function lmsRoutes(app: FastifyInstance) {
           .where(
             and(
               eq(courseAssessmentAttempts.studentId, student.id),
-              eq(courseAssessmentAttempts.organizationId, student.organizationId!),
+              student.organizationId
+                ? eq(courseAssessmentAttempts.organizationId, student.organizationId)
+                : undefined,
             ),
           )
           .orderBy(desc(courseAssessmentAttempts.createdAt)),

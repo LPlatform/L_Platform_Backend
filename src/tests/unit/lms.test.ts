@@ -42,6 +42,7 @@ describe('LMS helpers', () => {
           lessonId: null,
           learningObjective: null,
           sourcePage: null,
+          sourceReference: null,
           answerKey: { correctOption: 'Fairness' },
           rubric: [{ criterion: 'Secret' }],
           estimatedMinutes: 2,

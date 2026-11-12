@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { eq, and, desc, sql, ilike, or } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { auditLogs, organizations, users } from '../db/schema/index.js';
-import { requireRole } from '../middleware/auth.js';
+import { isPlatformOwnerRole, requireRole } from '../middleware/auth.js';
 
 export async function auditRoutes(app: FastifyInstance) {
   // GET /api/audit-logs
@@ -18,8 +18,11 @@ export async function auditRoutes(app: FastifyInstance) {
       const search = query.search?.trim();
       let organizationId = query.organizationId?.trim();
 
-      if (request.user!.role !== 'PLATFORM_ADMIN') {
-        organizationId = request.user!.organizationId;
+      if (!isPlatformOwnerRole(request.user!.role)) {
+        organizationId = request.user!.organizationId || undefined;
+        if (!organizationId) {
+          return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+        }
       }
 
       const conditions: any[] = [];

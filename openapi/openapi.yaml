@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: L_Platform Backend API
-  description: Multi-tenant educational programming platform REST API
-  version: 1.0.0
+  description: Multi-tenant educational programming and AI learning platform REST API
+  version: 1.1.0
 servers:
   - url: http://localhost:3001
     description: Local development server
@@ -71,14 +71,14 @@ paths:
           description: Profile information
   /api/organizations:
     get:
-      summary: List organizations
+      summary: List organizations (PLATFORM_OWNER / scoped ORGANIZATION_ADMIN)
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Paginated organizations
     post:
-      summary: Create organization
+      summary: Create organization (PLATFORM_OWNER only)
       security:
         - bearerAuth: []
       responses:
@@ -86,7 +86,7 @@ paths:
           description: Created
   /api/users:
     get:
-      summary: List users
+      summary: List users (tenant-scoped; blocked for PLATFORM_DEVELOPER)
       security:
         - bearerAuth: []
       responses:
@@ -99,6 +99,46 @@ paths:
       responses:
         '201':
           description: Created
+  /api/users/import/preview:
+    post:
+      summary: Validate CSV user import rows without mutating database
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Validated preview rows
+  /api/users/import/confirm:
+    post:
+      summary: Commit validated CSV user import rows
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Users imported
+  /api/platform/roles:
+    get:
+      summary: List platform role capabilities and permission catalog
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Role permission catalog
+  /api/platform/integrations/status:
+    get:
+      summary: Report Supabase and OCI hybrid integration configuration status (no secrets)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Integration configuration summary
+  /api/settings/reset-demo:
+    post:
+      summary: Reset development demo seed state (disabled in production)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Seed data reset
   /api/classes:
     get:
       summary: List classes
@@ -129,6 +169,20 @@ paths:
       responses:
         '201':
           description: Created
+  /api/sections/{id}/students/bulk:
+    post:
+      summary: Bulk enroll existing students by CSV email list
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Enrollment summary
   /api/courses:
     get:
       summary: List courses
@@ -161,14 +215,14 @@ paths:
           description: Created
   /api/questions:
     get:
-      summary: List questions
+      summary: List questions (stripped answer keys/rubrics for STUDENT)
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Paginated questions
     post:
-      summary: Create question
+      summary: Create question with normalized options
       security:
         - bearerAuth: []
       responses:
@@ -176,14 +230,14 @@ paths:
           description: Created
   /api/assignments:
     get:
-      summary: List assignments
+      summary: List assignments across all seven supported types
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Paginated assignments
     post:
-      summary: Create assignment
+      summary: Create multi-question assignment
       security:
         - bearerAuth: []
       responses:
@@ -191,14 +245,14 @@ paths:
           description: Created
   /api/submissions:
     get:
-      summary: List submissions
+      summary: List submissions (scoped by student/section/org; blocked for PLATFORM_DEVELOPER)
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Paginated submissions
     post:
-      summary: Submit solution
+      summary: Submit code, written, structured, or uploaded assignment work
       security:
         - bearerAuth: []
       requestBody:
@@ -207,7 +261,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [assignmentId, questionId, language, code]
+              required: [assignmentId, questionId]
               properties:
                 assignmentId:
                   type: string
@@ -215,12 +269,20 @@ paths:
                   type: string
                 language:
                   type: string
-                  enum: [PYTHON, JAVA, CPP]
+                  enum: [PYTHON, JAVA, CPP, TEXT, DOCUMENT]
                 code:
+                  type: string
+                textResponse:
+                  type: string
+                responseData:
+                  type: object
+                attachmentUrl:
+                  type: string
+                attachmentName:
                   type: string
       responses:
         '202':
-          description: Submission accepted and stored as pending. The API does not execute submitted code; an isolated execution worker is not yet available.
+          description: Submission accepted and stored without server-side arbitrary code execution.
           content:
             application/json:
               schema:
@@ -238,10 +300,10 @@ paths:
                     type: string
                   language:
                     type: string
-                    enum: [PYTHON, JAVA, CPP]
+                    enum: [PYTHON, JAVA, CPP, TEXT, DOCUMENT]
                   status:
                     type: string
-                    enum: [PENDING]
+                    enum: [PENDING, PENDING_REVIEW]
                   score:
                     type: 'null'
                   totalTestCases:
@@ -251,18 +313,163 @@ paths:
                   results:
                     type: array
                     items: {}
+  /api/submissions/{id}/grade:
+    patch:
+      summary: Manually grade a submission and optionally release student feedback
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Submission graded
+  /api/submissions/attachment-upload:
+    post:
+      summary: Issue scoped OCI Object Storage upload authorization for student submission attachment
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Signed OCI upload target
+        '503':
+          description: OCI Object Storage not configured (fail closed)
+  /api/submissions/{id}/attachment-download:
+    get:
+      summary: Issue scoped OCI Object Storage download authorization for authorized caller
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Signed OCI download target
+        '503':
+          description: OCI Object Storage not configured (fail closed)
   /api/dashboard/summary:
     get:
-      summary: Dashboard summary counts
+      summary: Dashboard summary counts (role & tenant scoped)
       security:
         - bearerAuth: []
       responses:
         '200':
           description: Metrics
+  /api/dashboard/teacher:
+    get:
+      summary: Teacher dashboard metrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Metrics
+  /api/reports/onboarding-series:
+    get:
+      summary: Monthly student and teacher onboarding series
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Onboarding time series
+  /api/assessments:
+    get:
+      summary: List course assessments
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Assessment items
+    post:
+      summary: Create draft or published assessment with immutable question snapshots
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Created
+  /api/assessments/{id}/publish:
+    patch:
+      summary: Publish assessment and freeze immutable question snapshots
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Published assessment
+  /api/assessments/{id}/assign:
+    post:
+      summary: Assign a published assessment to a school section
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Assessment assigned to section
+        '403':
+          description: Forbidden for role or unassigned teacher section
+  /api/teacher/assessment-reviews:
+    get:
+      summary: List teacher-scoped submitted assessment answers awaiting rubric review
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Attempt review queue
+  /api/teacher/assessment-answers/{answerId}/review:
+    post:
+      summary: Grade a student written/rubric assessment answer
+      parameters:
+        - in: path
+          name: answerId
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Answer reviewed and attempt total recalculated
+  /api/teacher/assessment-attempts/{attemptId}/release:
+    post:
+      summary: Release a graded assessment attempt score and feedback to the student
+      parameters:
+        - in: path
+          name: attemptId
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Attempt released to student
+  /api/learning/courses:
+    get:
+      summary: List free platform courses and school-allocated courses visible to caller
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Courses list
   /api/learning/ai-readiness:
     get:
-      summary: Get allocated AI Readiness Course content
-      description: Returns shared paraphrased course content when the course is published and the authenticated user's organization has an active allocation. Platform administrators may view it without an organization allocation.
+      summary: Get free platform-wide AI Readiness Course content
+      description: Returns shared paraphrased course content when the course is published for any authenticated active user (PLATFORM_FREE access model).
       security:
         - bearerAuth: []
       responses:
@@ -339,18 +546,117 @@ paths:
                             type: string
         '401':
           description: Authentication required
-        '403':
-          description: No active course allocation for the user's organization
         '404':
           description: Course is missing or unpublished
-  /api/dashboard/teacher:
+  /api/learning/classes:
     get:
-      summary: Teacher dashboard metrics
+      summary: List active student class/section enrollments
       security:
         - bearerAuth: []
       responses:
         '200':
-          description: Metrics
+          description: Joined student sections
+  /api/learning/classes/join:
+    post:
+      summary: Join an active class section in the student organization by join code or URL
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Already enrolled in matching active section
+        '201':
+          description: Joined matching active section
+        '403':
+          description: Student is not linked to an organization
+        '404':
+          description: Matching active section not found in student organization
+  /api/learning/lesson-progress:
+    get:
+      summary: List completed lesson IDs for the authenticated student
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Completed lesson records
+  /api/learning/progress/lessons:
+    post:
+      summary: Mark a platform course lesson as completed for the authenticated student
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lesson progress recorded
+  /api/learning/assessments:
+    get:
+      summary: List published platform assessments and school-assigned assessments for student
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Student-accessible assessments
+  /api/learning/assessments/{assignmentId}/attempts:
+    post:
+      summary: Start or resume an assessment attempt (accepts assignmentId or platform assessmentId)
+      parameters:
+        - in: path
+          name: assignmentId
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Attempt payload with sanitized questions and unwrapped saved answers
+  /api/learning/attempts/{attemptId}/answers/{questionId}:
+    put:
+      summary: Save or update a student answer for an in-progress attempt
+      parameters:
+        - in: path
+          name: attemptId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: questionId
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Saved answer status
+  /api/learning/attempts/{attemptId}/submit:
+    post:
+      summary: Submit assessment attempt and run objective scoring or route to teacher review
+      parameters:
+        - in: path
+          name: attemptId
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Submission result
+  /api/learning/progress:
+    get:
+      summary: Aggregate completed lesson count and assessment progress for the authenticated student
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Student learning progress summary
+  /api/learning/results:
+    get:
+      summary: List historical student attempts with gated score and released breakdowns
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Student results
 components:
   securitySchemes:
     bearerAuth:

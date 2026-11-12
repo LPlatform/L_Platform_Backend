@@ -152,6 +152,9 @@ export const courses = pgTable('courses', {
   difficulty: text('difficulty').notNull().default('BEGINNER'), // BEGINNER, INTERMEDIATE, ADVANCED
   status: text('status').notNull().default('PUBLISHED'), // DRAFT, PUBLISHED, ARCHIVED
   version: text('version').notNull().default('1.0.0'),
+  isPlatformCourse: boolean('is_platform_course').notNull().default(false),
+  accessModel: text('access_model').notNull().default('ORG_ALLOCATED'), // PLATFORM_FREE, ORG_ALLOCATED
+  estimatedMinutes: integer('estimated_minutes').default(0),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -203,6 +206,7 @@ export const questions = pgTable('questions', {
   lessonId: text('lesson_id'),
   learningObjective: text('learning_objective'),
   sourcePage: text('source_page'),
+  sourceReference: text('source_reference'),
   answerKey: jsonb('answer_key'),
   rubric: jsonb('rubric'),
   estimatedMinutes: integer('estimated_minutes'),
@@ -244,8 +248,12 @@ export const assignments = pgTable('assignments', {
   }),
   createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
   title: text('title').notNull(),
+  assignmentType: text('assignment_type').notNull().default('PROGRAMMING'),
   description: text('description'),
   instructions: text('instructions'),
+  attachmentInstructions: text('attachment_instructions'),
+  maxFileSizeMb: integer('max_file_size_mb').default(10),
+  allowResubmit: boolean('allow_resubmit').notNull().default(false),
   totalMarks: integer('total_marks').notNull().default(100),
   startDate: timestamp('start_date', { withTimezone: true }).notNull(),
   dueDate: timestamp('due_date', { withTimezone: true }).notNull(),
@@ -280,9 +288,19 @@ export const submissions = pgTable('submissions', {
   studentId: text('student_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  code: text('code').notNull(),
-  language: text('language').notNull(), // PYTHON, JAVA, CPP
-  status: text('status').notNull().default('PENDING'), // PENDING, EVALUATING, COMPLETED, ERROR
+  code: text('code').notNull().default(''),
+  language: text('language').notNull().default('PYTHON'), // PYTHON, JAVA, CPP, WRITTEN, FILE
+  textResponse: text('text_response'),
+  responseData: jsonb('response_data').default({}),
+  attachmentUrl: text('attachment_url'),
+  attachmentName: text('attachment_name'),
+  attachmentMime: text('attachment_mime'),
+  attachmentSizeBytes: integer('attachment_size_bytes'),
+  teacherFeedback: text('teacher_feedback'),
+  gradedBy: text('graded_by').references(() => users.id, { onDelete: 'set null' }),
+  gradedAt: timestamp('graded_at', { withTimezone: true }),
+  feedbackReleasedAt: timestamp('feedback_released_at', { withTimezone: true }),
+  status: text('status').notNull().default('PENDING'), // PENDING, EVALUATING, COMPLETED, GRADED, RELEASED, ERROR
   score: integer('score').default(0),
   totalTestCases: integer('total_test_cases').default(0),
   passedTestCases: integer('passed_test_cases').default(0),
@@ -327,6 +345,10 @@ export const courseAssessments = pgTable(
     courseId: text('course_id')
       .notNull()
       .references(() => courses.id, { onDelete: 'cascade' }),
+    organizationId: text('organization_id').references(() => organizations.id, {
+      onDelete: 'cascade',
+    }),
+    scope: text('scope').notNull().default('SECTION'), // PLATFORM, SECTION
     moduleId: text('module_id').notNull(),
     version: integer('version').notNull().default(1),
     title: text('title').notNull(),
@@ -424,15 +446,15 @@ export const courseAssessmentAttempts = pgTable(
     assessmentId: text('assessment_id')
       .notNull()
       .references(() => courseAssessments.id, { onDelete: 'restrict' }),
-    assignmentId: text('assignment_id')
-      .notNull()
-      .references(() => courseAssessmentAssignments.id, { onDelete: 'restrict' }),
+    assignmentId: text('assignment_id').references(() => courseAssessmentAssignments.id, {
+      onDelete: 'restrict',
+    }),
     studentId: text('student_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
-    organizationId: text('organization_id')
-      .notNull()
-      .references(() => organizations.id, { onDelete: 'restrict' }),
+    organizationId: text('organization_id').references(() => organizations.id, {
+      onDelete: 'restrict',
+    }),
     assessmentVersion: integer('assessment_version').notNull(),
     attemptNumber: integer('attempt_number').notNull(),
     status: text('status').notNull().default('IN_PROGRESS'),
@@ -516,9 +538,9 @@ export const courseLessonProgress = pgTable(
     studentId: text('student_id')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
-    organizationId: text('organization_id')
-      .notNull()
-      .references(() => organizations.id, { onDelete: 'restrict' }),
+    organizationId: text('organization_id').references(() => organizations.id, {
+      onDelete: 'restrict',
+    }),
     completedAt: timestamp('completed_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({

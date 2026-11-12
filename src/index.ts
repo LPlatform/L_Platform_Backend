@@ -1,5 +1,4 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import './load-env.js';
 
 import fastify from 'fastify';
 import cors from '@fastify/cors';
@@ -9,7 +8,10 @@ import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { pool } from './db/connection.js';
+import { runWithRlsContext, type RlsContext } from './db/rls-context.js';
+import { getAllowedCorsOrigins, getCookieSecret } from './lib/env.js';
 import { AppError } from './lib/errors.js';
+import { resolveTokenUser } from './middleware/auth.js';
 
 // Route imports
 import { authRoutes } from './routes/auth.routes.js';
@@ -33,20 +35,66 @@ import { assessmentRoutes } from './routes/assessment.routes.js';
 import { lmsRoutes } from './routes/lms.routes.js';
 
 const app = fastify({
+  // Behind Vercel / the Next.js proxy, use X-Forwarded-For for client IP (rate limiting).
+  trustProxy: process.env.TRUST_PROXY === 'true' || Boolean(process.env.VERCEL),
   logger: {
     level: process.env.LOG_LEVEL || 'info',
   },
 });
 
 // Security & utility plugins
+const allowedCorsOrigins = new Set(getAllowedCorsOrigins());
 await app.register(cors, {
-  origin: true,
+  origin: (origin, cb) => {
+    if (!origin || allowedCorsOrigins.has(origin)) {
+      cb(null, true);
+      return;
+    }
+    const corsError = new Error('Origin not allowed by CORS policy') as Error & {
+      statusCode?: number;
+    };
+    corsError.statusCode = 403;
+    cb(corsError, false);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 });
 
 await app.register(cookie, {
-  secret: process.env.COOKIE_SECRET || 'cookie-secret-change-in-production-long-random-string',
+  secret: getCookieSecret(),
+});
+
+app.addHook('onRequest', (request, _reply, done) => {
+  let token: string | undefined;
+  const authHeader = request.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (request.cookies?.access_token) {
+    token = request.cookies.access_token;
+  }
+
+  const enter = (ctx: RlsContext) => runWithRlsContext(ctx, () => done());
+  if (!token) {
+    enter({ userId: null, role: null, organizationId: null, systemContext: null });
+    return;
+  }
+
+  resolveTokenUser(token).then(
+    (payload) => {
+      if (payload) {
+        request.user = payload;
+        enter({
+          userId: payload.userId,
+          role: payload.role,
+          organizationId: payload.organizationId,
+          systemContext: null,
+        });
+      } else {
+        enter({ userId: null, role: null, organizationId: null, systemContext: null });
+      }
+    },
+    () => enter({ userId: null, role: null, organizationId: null, systemContext: null }),
+  );
 });
 
 await app.register(helmet, {
@@ -129,7 +177,7 @@ await app.register(assessmentRoutes);
 await app.register(lmsRoutes);
 
 // Global error handler
-app.setErrorHandler((error: any, request, reply) => {
+app.setErrorHandler((error: unknown, request, reply) => {
   if (error instanceof AppError) {
     return reply.status(error.statusCode).send({
       code: error.code,
@@ -138,10 +186,16 @@ app.setErrorHandler((error: any, request, reply) => {
     });
   }
 
+  const errObj = error as { statusCode?: number; code?: string; message?: string };
+  const statusCode = errObj.statusCode && errObj.statusCode >= 400 ? errObj.statusCode : 500;
   request.log.error(error);
-  return reply.status(error.statusCode || 500).send({
-    code: error.code || 'INTERNAL_ERROR',
-    message: error.message || 'An unexpected error occurred',
+
+  const isProd500 = process.env.NODE_ENV === 'production' && statusCode >= 500;
+  return reply.status(statusCode).send({
+    code: errObj.code || (statusCode >= 500 ? 'INTERNAL_ERROR' : 'REQUEST_ERROR'),
+    message: isProd500
+      ? 'An unexpected internal error occurred'
+      : errObj.message || 'An unexpected error occurred',
   });
 });
 
@@ -159,7 +213,10 @@ export async function startServer() {
   }
 }
 
-if (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {
+if (
+  !process.env.VERCEL &&
+  (process.argv[1]?.endsWith('index.ts') || process.argv[1]?.endsWith('index.js'))
+) {
   startServer();
 }
 

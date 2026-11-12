@@ -4,7 +4,12 @@ import { eq, ilike, and, sql, desc, or, inArray } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { courses, courseAllocations, studentSectionMemberships } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { authenticate, requireRole, checkTenantAccess } from '../middleware/auth.js';
+import {
+  authenticate,
+  isPlatformDeveloperRole,
+  isPlatformOwnerRole,
+  requireRole,
+} from '../middleware/auth.js';
 
 async function toCourseDto(course: typeof courses.$inferSelect) {
   const allocationRows = await db.query.courseAllocations.findMany({
@@ -85,6 +90,10 @@ async function toCourseDto(course: typeof courses.$inferSelect) {
     ...course,
     publicId: course.id.toUpperCase(),
     category: course.category || 'Uncategorized',
+    isPlatformCourse: course.isPlatformCourse || course.organizationId === null,
+    accessModel:
+      course.accessModel || (course.organizationId === null ? 'PLATFORM_FREE' : 'ORG_ALLOCATED'),
+    estimatedMinutes: course.estimatedMinutes ?? 0,
     version: Number.parseInt(course.version, 10) || 1,
     status,
     allocationCount: allocations.filter((allocation) => allocation.status === 'ACTIVE').length,
@@ -117,9 +126,30 @@ export async function courseRoutes(app: FastifyInstance) {
     const status = query.status?.trim();
 
     const conditions: any[] = [];
-    if (request.user!.role !== 'PLATFORM_ADMIN') {
+    if (isPlatformOwnerRole(request.user!.role)) {
+      if (query.organizationId && query.organizationId !== 'ALL') {
+        conditions.push(eq(courses.organizationId, query.organizationId));
+      }
+    } else if (isPlatformDeveloperRole(request.user!.role)) {
+      conditions.push(sql`organization_id IS NULL`);
+    } else if (request.user!.role === 'STUDENT') {
+      conditions.push(inArray(courses.status, ['ACTIVE', 'PUBLISHED']));
       conditions.push(
-        or(eq(courses.organizationId, request.user!.organizationId!), sql`organization_id IS NULL`),
+        request.user!.organizationId
+          ? or(
+              eq(courses.organizationId, request.user!.organizationId),
+              sql`organization_id IS NULL`,
+            )
+          : sql`organization_id IS NULL`,
+      );
+    } else {
+      conditions.push(
+        request.user!.organizationId
+          ? or(
+              eq(courses.organizationId, request.user!.organizationId),
+              and(sql`organization_id IS NULL`, inArray(courses.status, ['ACTIVE', 'PUBLISHED'])),
+            )
+          : and(sql`organization_id IS NULL`, inArray(courses.status, ['ACTIVE', 'PUBLISHED'])),
       );
     }
     if (language && language !== 'ALL') conditions.push(eq(courses.language, language));
@@ -155,15 +185,21 @@ export async function courseRoutes(app: FastifyInstance) {
   // GET /api/courses/options
   app.get('/api/courses/options', { preHandler: [authenticate] }, async (request, reply) => {
     const conditions: any[] = [inArray(courses.status, ['ACTIVE', 'PUBLISHED'])];
-    if (request.user!.role !== 'PLATFORM_ADMIN') {
-      if (!request.user!.organizationId) return reply.send([]);
+    if (isPlatformDeveloperRole(request.user!.role)) {
+      conditions.push(sql`organization_id IS NULL`);
+    } else if (!isPlatformOwnerRole(request.user!.role)) {
       conditions.push(
-        or(eq(courses.organizationId, request.user!.organizationId), sql`organization_id IS NULL`),
+        request.user!.organizationId
+          ? or(
+              eq(courses.organizationId, request.user!.organizationId),
+              sql`organization_id IS NULL`,
+            )
+          : sql`organization_id IS NULL`,
       );
     }
     const list = await db.query.courses.findMany({
       where: and(...conditions),
-      columns: { id: true, title: true, language: true, difficulty: true },
+      columns: { id: true, title: true, language: true, difficulty: true, isPlatformCourse: true },
     });
     return reply.send(list);
   });
@@ -179,6 +215,24 @@ export async function courseRoutes(app: FastifyInstance) {
 
     if (!course) throw Errors.notFound('Course not found');
 
+    const user = request.user!;
+    const isOwner = isPlatformOwnerRole(user.role);
+    const isDev = isPlatformDeveloperRole(user.role);
+    if (!isOwner) {
+      if (course.organizationId === null) {
+        if (!isDev && !['ACTIVE', 'PUBLISHED'].includes(course.status)) {
+          throw Errors.forbidden('Course is not published');
+        }
+      } else {
+        if (isDev || course.organizationId !== user.organizationId) {
+          throw Errors.forbidden('Access denied to this course');
+        }
+        if (user.role === 'STUDENT' && !['ACTIVE', 'PUBLISHED'].includes(course.status)) {
+          throw Errors.forbidden('Course is not published');
+        }
+      }
+    }
+
     return reply.send({
       ...(await toCourseDto(course)),
       organizationName: course.organization?.name || 'Platform-wide',
@@ -188,20 +242,37 @@ export async function courseRoutes(app: FastifyInstance) {
   // POST /api/courses
   app.post(
     '/api/courses',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const body = request.body as any;
       if (!body.title) throw Errors.badRequest('Course title is required');
 
-      let orgId = body.organizationId;
-      if (request.user!.role !== 'PLATFORM_ADMIN') {
-        orgId = request.user!.organizationId;
+      const user = request.user!;
+      let orgId: string | null = body.organizationId || null;
+      if (isPlatformDeveloperRole(user.role)) {
+        orgId = null;
+      } else if (!isPlatformOwnerRole(user.role)) {
+        if (!user.organizationId) {
+          throw Errors.forbidden('Organization membership is required to create a school course');
+        }
+        orgId = user.organizationId;
       }
 
+      const isPlatformCourse = orgId === null;
       const courseId = `crs-${uuidv4().slice(0, 8)}`;
       const newCourse = {
         id: courseId,
-        organizationId: orgId || null,
+        organizationId: orgId,
         title: body.title.trim(),
         category: body.category || '',
         description: body.description || null,
@@ -209,7 +280,10 @@ export async function courseRoutes(app: FastifyInstance) {
         difficulty: body.difficulty || 'BEGINNER',
         status: body.status || 'PUBLISHED',
         version: String(body.version || '1'),
-        createdBy: request.user!.userId,
+        isPlatformCourse,
+        accessModel: isPlatformCourse ? body.accessModel || 'PLATFORM_FREE' : 'ORG_ALLOCATED',
+        estimatedMinutes: typeof body.estimatedMinutes === 'number' ? body.estimatedMinutes : 0,
+        createdBy: user.userId,
       };
 
       const [created] = await db.insert(courses).values(newCourse).returning();
@@ -220,13 +294,37 @@ export async function courseRoutes(app: FastifyInstance) {
   // PATCH /api/courses/:id
   app.patch(
     '/api/courses/:id',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const body = request.body as any;
 
       const course = await db.query.courses.findFirst({ where: eq(courses.id, id) });
       if (!course) throw Errors.notFound('Course not found');
+
+      const user = request.user!;
+      if (!isPlatformOwnerRole(user.role)) {
+        if (course.organizationId === null) {
+          if (!isPlatformDeveloperRole(user.role)) {
+            throw Errors.forbidden('Only platform staff can modify platform courses');
+          }
+        } else if (
+          isPlatformDeveloperRole(user.role) ||
+          course.organizationId !== user.organizationId
+        ) {
+          throw Errors.forbidden('Access denied to this course');
+        }
+      }
 
       const updateData: any = { updatedAt: new Date() };
       if (body.title !== undefined) updateData.title = body.title.trim();
@@ -235,7 +333,8 @@ export async function courseRoutes(app: FastifyInstance) {
       if (body.language !== undefined) updateData.language = body.language;
       if (body.difficulty !== undefined) updateData.difficulty = body.difficulty;
       if (body.status !== undefined) updateData.status = body.status;
-      if (body.version !== undefined) updateData.version = body.version;
+      if (body.version !== undefined) updateData.version = String(body.version);
+      if (body.estimatedMinutes !== undefined) updateData.estimatedMinutes = body.estimatedMinutes;
 
       await db.update(courses).set(updateData).where(eq(courses.id, id));
       const updated = await db.query.courses.findFirst({ where: eq(courses.id, id) });
@@ -246,10 +345,37 @@ export async function courseRoutes(app: FastifyInstance) {
   // PATCH /api/courses/:id/status
   app.patch(
     '/api/courses/:id/status',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const { status } = request.body as { status: string };
+
+      const course = await db.query.courses.findFirst({ where: eq(courses.id, id) });
+      if (!course) throw Errors.notFound('Course not found');
+
+      const user = request.user!;
+      if (!isPlatformOwnerRole(user.role)) {
+        if (course.organizationId === null) {
+          if (!isPlatformDeveloperRole(user.role)) {
+            throw Errors.forbidden('Only platform staff can modify platform course status');
+          }
+        } else if (
+          isPlatformDeveloperRole(user.role) ||
+          course.organizationId !== user.organizationId
+        ) {
+          throw Errors.forbidden('Access denied to this course');
+        }
+      }
 
       await db.update(courses).set({ status, updatedAt: new Date() }).where(eq(courses.id, id));
       return reply.send({ success: true, status });
