@@ -40,7 +40,7 @@ DATABASE_URL=postgresql://...test-db... pnpm test:integration   # needs a dispos
 ## Deploy (Vercel + Supabase)
 
 1. **Supabase** → create a project → Settings → Database → copy the **Transaction pooler** connection string (port 6543). Remove any `?sslmode=...`.
-2. **GitHub** → this repo → Settings → Environments → `production` → secrets: `DATABASE_URL`, `JWT_SECRET`, `COOKIE_SECRET`. Run **Actions → Supabase DB Migrate** on `main` (tick *seed* once only if you want demo data, then change those passwords).
+2. **GitHub** → this repo → Settings → Environments → `production` → secrets: `DATABASE_URL`, `JWT_SECRET`, `COOKIE_SECRET`. Run **Actions → Supabase DB Migrate** on `main` (tick _seed_ once only if you want demo data, then change those passwords).
 3. **Vercel** → import this repo (framework: Other). `vercel.json` builds with `pnpm build` and serves `api/index.js`. Env vars:
    `DATABASE_URL`, `DATABASE_SSL=true`, `PG_POOL_MAX=3`, `NODE_ENV=production`, `JWT_SECRET`, `COOKIE_SECRET`,
    `CORS_ORIGIN=https://<web-domain>,tauri://localhost,http://tauri.localhost,https://tauri.localhost`.
