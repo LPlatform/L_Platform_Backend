@@ -10,9 +10,11 @@ import {
   createAccessToken,
   generateRefreshToken,
   hashRefreshToken,
+  type UserRole,
 } from '../lib/auth.js';
 import { Errors } from '../lib/errors.js';
 import { authenticate } from '../middleware/auth.js';
+import { runWithRlsContext } from '../db/rls-context.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -29,49 +31,58 @@ export async function authRoutes(app: FastifyInstance) {
 
     const { email, password } = parsed.data;
 
-    // Find user by email
-    const user = await db.query.users.findFirst({
-      where: eq(users.email, email.toLowerCase()),
-      with: { credentials: true },
+    // Find user and issue refresh session under AUTH system RLS context
+    const authResult = await runWithRlsContext({ systemContext: 'AUTH' }, async () => {
+      const user = await db.query.users.findFirst({
+        where: eq(users.email, email.toLowerCase()),
+        with: { credentials: true, organization: true },
+      });
+
+      if (!user || !user.credentials) {
+        throw Errors.unauthorized('Invalid email address or password');
+      }
+
+      if (user.status !== 'ACTIVE') {
+        throw Errors.unauthorized('Your account is currently inactive or suspended');
+      }
+
+      if (user.organization && user.organization.status !== 'ACTIVE') {
+        throw Errors.unauthorized('Your organization is currently suspended or inactive');
+      }
+
+      const passwordValid = await verifyPassword(user.credentials.passwordHash, password);
+      if (!passwordValid) {
+        throw Errors.unauthorized('Invalid email address or password');
+      }
+
+      const tokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role as UserRole,
+        organizationId: user.organizationId,
+        name: `${user.firstName} ${user.lastName}`,
+      };
+
+      const accessToken = await createAccessToken(tokenPayload);
+      const rawRefreshToken = generateRefreshToken();
+      const tokenHash = hashRefreshToken(rawRefreshToken);
+
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      await db.insert(refreshSessions).values({
+        id: uuidv4(),
+        userId: user.id,
+        tokenHash,
+        userAgent: request.headers['user-agent'] || null,
+        ipAddress: request.ip || null,
+        expiresAt,
+      });
+
+      return { user, accessToken, rawRefreshToken };
     });
 
-    if (!user || !user.credentials) {
-      throw Errors.unauthorized('Invalid email address or password');
-    }
-
-    if (user.status !== 'ACTIVE') {
-      throw Errors.unauthorized('Your account is currently inactive or suspended');
-    }
-
-    const passwordValid = await verifyPassword(user.credentials.passwordHash, password);
-    if (!passwordValid) {
-      throw Errors.unauthorized('Invalid email address or password');
-    }
-
-    const tokenPayload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role as any,
-      organizationId: user.organizationId,
-      name: `${user.firstName} ${user.lastName}`,
-    };
-
-    const accessToken = await createAccessToken(tokenPayload);
-    const rawRefreshToken = generateRefreshToken();
-    const tokenHash = hashRefreshToken(rawRefreshToken);
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
-    // Save refresh session
-    await db.insert(refreshSessions).values({
-      id: uuidv4(),
-      userId: user.id,
-      tokenHash,
-      userAgent: request.headers['user-agent'] || null,
-      ipAddress: request.ip || null,
-      expiresAt,
-    });
+    const { user, accessToken, rawRefreshToken } = authResult;
 
     // Set cookie
     reply.setCookie('access_token', accessToken, {
@@ -116,58 +127,70 @@ export async function authRoutes(app: FastifyInstance) {
 
     const tokenHash = hashRefreshToken(rawToken);
 
-    const session = await db.query.refreshSessions.findFirst({
-      where: eq(refreshSessions.tokenHash, tokenHash),
-    });
+    const { newAccessToken, newRawRefreshToken } = await runWithRlsContext(
+      { systemContext: 'AUTH' },
+      async () => {
+        const session = await db.query.refreshSessions.findFirst({
+          where: eq(refreshSessions.tokenHash, tokenHash),
+        });
 
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
-      // Replay or invalid: revoke all sessions if replay detected
-      if (session?.revokedAt) {
+        if (!session || session.revokedAt || session.expiresAt < new Date()) {
+          // Replay or invalid: revoke all sessions if replay detected
+          if (session?.revokedAt) {
+            await db
+              .update(refreshSessions)
+              .set({ revokedAt: new Date() })
+              .where(eq(refreshSessions.userId, session.userId));
+          }
+          throw Errors.unauthorized('Refresh token is invalid or expired');
+        }
+
+        // Revoke old session
         await db
           .update(refreshSessions)
           .set({ revokedAt: new Date() })
-          .where(eq(refreshSessions.userId, session.userId));
-      }
-      throw Errors.unauthorized('Refresh token is invalid or expired');
-    }
+          .where(eq(refreshSessions.id, session.id));
 
-    // Revoke old session
-    await db
-      .update(refreshSessions)
-      .set({ revokedAt: new Date() })
-      .where(eq(refreshSessions.id, session.id));
+        const user = await db.query.users.findFirst({
+          where: eq(users.id, session.userId),
+          with: { organization: true },
+        });
 
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, session.userId),
-    });
+        if (!user || user.status !== 'ACTIVE') {
+          throw Errors.unauthorized('User not found or inactive');
+        }
 
-    if (!user || user.status !== 'ACTIVE') {
-      throw Errors.unauthorized('User not found or inactive');
-    }
+        if (user.organization && user.organization.status !== 'ACTIVE') {
+          throw Errors.unauthorized('Organization is suspended or inactive');
+        }
 
-    const tokenPayload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role as any,
-      organizationId: user.organizationId,
-      name: `${user.firstName} ${user.lastName}`,
-    };
+        const tokenPayload = {
+          userId: user.id,
+          email: user.email,
+          role: user.role as UserRole,
+          organizationId: user.organizationId,
+          name: `${user.firstName} ${user.lastName}`,
+        };
 
-    const newAccessToken = await createAccessToken(tokenPayload);
-    const newRawRefreshToken = generateRefreshToken();
-    const newTokenHash = hashRefreshToken(newRawRefreshToken);
+        const newAccessToken = await createAccessToken(tokenPayload);
+        const newRawRefreshToken = generateRefreshToken();
+        const newTokenHash = hashRefreshToken(newRawRefreshToken);
 
-    const newExpiresAt = new Date();
-    newExpiresAt.setDate(newExpiresAt.getDate() + 7);
+        const newExpiresAt = new Date();
+        newExpiresAt.setDate(newExpiresAt.getDate() + 7);
 
-    await db.insert(refreshSessions).values({
-      id: uuidv4(),
-      userId: user.id,
-      tokenHash: newTokenHash,
-      userAgent: request.headers['user-agent'] || null,
-      ipAddress: request.ip || null,
-      expiresAt: newExpiresAt,
-    });
+        await db.insert(refreshSessions).values({
+          id: uuidv4(),
+          userId: user.id,
+          tokenHash: newTokenHash,
+          userAgent: request.headers['user-agent'] || null,
+          ipAddress: request.ip || null,
+          expiresAt: newExpiresAt,
+        });
+
+        return { newAccessToken, newRawRefreshToken };
+      },
+    );
 
     reply.setCookie('access_token', newAccessToken, {
       path: '/',
@@ -175,6 +198,14 @@ export async function authRoutes(app: FastifyInstance) {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 15 * 60,
+    });
+
+    reply.setCookie('refresh_token', newRawRefreshToken, {
+      path: '/',
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60,
     });
 
     return reply.send({
@@ -189,10 +220,12 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (rawToken) {
       const tokenHash = hashRefreshToken(rawToken);
-      await db
-        .update(refreshSessions)
-        .set({ revokedAt: new Date() })
-        .where(eq(refreshSessions.tokenHash, tokenHash));
+      await runWithRlsContext({ systemContext: 'AUTH' }, async () => {
+        await db
+          .update(refreshSessions)
+          .set({ revokedAt: new Date() })
+          .where(eq(refreshSessions.tokenHash, tokenHash));
+      });
     }
 
     reply.clearCookie('access_token', { path: '/' });
@@ -229,8 +262,11 @@ export async function authRoutes(app: FastifyInstance) {
   // POST /api/auth/change-password
   app.post('/api/auth/change-password', { preHandler: [authenticate] }, async (request, reply) => {
     const body = request.body as any;
-    if (!body.oldPassword || !body.newPassword) {
+    if (!body?.oldPassword || !body?.newPassword) {
       throw Errors.badRequest('Both old and new passwords are required');
+    }
+    if (typeof body.newPassword !== 'string' || body.newPassword.length < 6) {
+      throw Errors.badRequest('New password must be at least 6 characters');
     }
 
     const cred = await db.query.credentials.findFirst({

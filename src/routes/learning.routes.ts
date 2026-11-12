@@ -1,8 +1,8 @@
 import { FastifyInstance } from 'fastify';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { courseAllocations, courses } from '../db/schema/index.js';
-import { authenticate } from '../middleware/auth.js';
+import { courses } from '../db/schema/index.js';
+import { authenticate, isPlatformDeveloperRole, isPlatformOwnerRole } from '../middleware/auth.js';
 import { aiReadinessCourse } from '../content/ai-readiness.js';
 
 export async function learningRoutes(app: FastifyInstance) {
@@ -10,33 +10,19 @@ export async function learningRoutes(app: FastifyInstance) {
     const course = await db.query.courses.findFirst({
       where: eq(courses.id, 'crs-ai-readiness-001'),
     });
-    if (!course || course.status !== 'PUBLISHED') {
+    const user = request.user!;
+    const isPlatformStaff = isPlatformOwnerRole(user.role) || isPlatformDeveloperRole(user.role);
+    if (!course) {
+      return reply.status(404).send({ code: 'NOT_FOUND', message: 'Course not found' });
+    }
+    if (!isPlatformStaff && !['PUBLISHED', 'ACTIVE'].includes(course.status)) {
       return reply.status(404).send({ code: 'NOT_FOUND', message: 'Course not found' });
     }
 
-    const user = request.user!;
-    if (user.role !== 'PLATFORM_ADMIN') {
-      if (!user.organizationId) {
-        return reply
-          .status(403)
-          .send({ code: 'FORBIDDEN', message: 'Course access is not allocated' });
-      }
-      const allocation = await db.query.courseAllocations.findFirst({
-        where: and(
-          eq(courseAllocations.courseId, course.id),
-          eq(courseAllocations.organizationId, user.organizationId),
-          eq(courseAllocations.scope, 'ORGANIZATION'),
-          eq(courseAllocations.status, 'ACTIVE'),
-          eq(courseAllocations.accessEnabled, true),
-        ),
-      });
-      if (!allocation) {
-        return reply
-          .status(403)
-          .send({ code: 'FORBIDDEN', message: 'Course access is not allocated' });
-      }
-    }
-
-    return reply.send(aiReadinessCourse);
+    return reply.send({
+      ...aiReadinessCourse,
+      scopeType: 'PLATFORM_FREE',
+      accessModel: course.accessModel || 'PLATFORM_FREE',
+    });
   });
 }

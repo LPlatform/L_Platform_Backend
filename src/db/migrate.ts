@@ -1,9 +1,11 @@
+import '../load-env.js';
 import pg from 'pg';
+import { getDatabaseUrl } from '../lib/env.js';
+import { applySecurityRlsAndPlatformContentMigration } from './migrations/002_security_rls_and_platform_content.js';
 
 const { Pool } = pg;
 
-const connectionString =
-  process.env.DATABASE_URL || 'postgresql://lplatform:lplatform_dev@localhost:5432/lplatform';
+const connectionString = getDatabaseUrl();
 
 const isClean = process.argv.includes('--clean');
 
@@ -24,6 +26,7 @@ DROP TABLE IF EXISTS course_assessment_questions CASCADE;
 DROP TABLE IF EXISTS course_assessments CASCADE;
 DROP TABLE IF EXISTS course_lesson_progress CASCADE;
 DROP TABLE IF EXISTS test_cases CASCADE;
+DROP TABLE IF EXISTS question_options CASCADE;
 DROP TABLE IF EXISTS questions CASCADE;
 DROP TABLE IF EXISTS course_allocations CASCADE;
 DROP TABLE IF EXISTS courses CASCADE;
@@ -427,56 +430,18 @@ VALUES (
   'A practical introduction to AI, programming, data, machine learning, language technologies, projects and responsible AI.',
   'PYTHON', 'BEGINNER', 'PUBLISHED', '1.0.0'
 )
-ON CONFLICT (id) DO NOTHING;
-
-CREATE OR REPLACE FUNCTION allocate_ai_readiness_to_organization() RETURNS trigger AS $$
-BEGIN
-  IF NEW.status = 'ACTIVE' THEN
-    INSERT INTO course_allocations (
-      id, course_id, organization_id, scope, status, access_enabled, start_date
-    )
-    SELECT 'alloc-ai-readiness-org-' || substr(md5(NEW.id), 1, 12),
-           'crs-ai-readiness-001', NEW.id, 'ORGANIZATION', 'ACTIVE', TRUE, NOW()
-    WHERE NOT EXISTS (
-      SELECT 1 FROM course_allocations
-      WHERE course_id = 'crs-ai-readiness-001'
-        AND organization_id = NEW.id
-        AND scope = 'ORGANIZATION'
-        AND status = 'ACTIVE'
-    )
-    ON CONFLICT (id) DO NOTHING;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS organizations_ai_readiness_allocation ON organizations;
-CREATE TRIGGER organizations_ai_readiness_allocation
-AFTER INSERT OR UPDATE OF status ON organizations
-FOR EACH ROW EXECUTE FUNCTION allocate_ai_readiness_to_organization();
-
-INSERT INTO course_allocations (
-  id, course_id, organization_id, scope, status, access_enabled, start_date
-)
-SELECT 'alloc-ai-readiness-org-' || substr(md5(o.id), 1, 12),
-       'crs-ai-readiness-001', o.id, 'ORGANIZATION', 'ACTIVE', TRUE, NOW()
-FROM organizations o
-WHERE o.status = 'ACTIVE'
-  AND NOT EXISTS (
-    SELECT 1 FROM course_allocations ca
-    WHERE ca.course_id = 'crs-ai-readiness-001'
-      AND ca.organization_id = o.id
-      AND ca.scope = 'ORGANIZATION'
-      AND ca.status = 'ACTIVE'
-  )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET
+  organization_id = NULL,
+  status = 'PUBLISHED';
 `;
 
 export async function runMigrations() {
   const pool = new Pool({ connectionString });
   try {
-    console.log(`Running migrations against ${connectionString}... (clean=${isClean})`);
+    const safeTarget = connectionString.replace(/:\/\/([^:@]+):([^@]+)@/, '://$1:***@');
+    console.log(`Running migrations against ${safeTarget}... (clean=${isClean})`);
     await pool.query(migrationSql);
+    await applySecurityRlsAndPlatformContentMigration(pool);
     console.log('Migrations completed successfully.');
   } finally {
     await pool.end();

@@ -1,7 +1,16 @@
 import { FastifyInstance } from 'fastify';
-import { sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db/connection.js';
-import { requireRole } from '../middleware/auth.js';
+import {
+  classes,
+  courseAllocations,
+  courses,
+  organizations,
+  sections,
+  studentSectionMemberships,
+  users,
+} from '../db/schema/index.js';
+import { isPlatformOwnerRole, requireRole } from '../middleware/auth.js';
 
 const definitions = [
   [
@@ -27,7 +36,7 @@ const definitions = [
   [
     'class-distribution',
     'Class-wise student distribution',
-    'Student, section and teacher coverage for every class.',
+    'Student and section coverage for every class.',
     [
       { key: 'students', label: 'Students' },
       { key: 'sections', label: 'Sections' },
@@ -36,7 +45,7 @@ const definitions = [
   [
     'allocation-statistics',
     'Course allocation statistics',
-    'Course allocation counts and student reach.',
+    'Course allocation counts and active availability.',
     [
       { key: 'allocations', label: 'Allocations' },
       { key: 'active', label: 'Active' },
@@ -45,7 +54,7 @@ const definitions = [
   [
     'onboarding-statistics',
     'User onboarding statistics',
-    'New student and teacher accounts.',
+    'Student and teacher accounts.',
     [
       { key: 'students', label: 'Students' },
       { key: 'teachers', label: 'Teachers' },
@@ -62,15 +71,51 @@ const definitions = [
   ],
 ] as const;
 
-async function makeReports() {
-  const organizations = await db.execute(
-    sql`SELECT id, name, type, city, status FROM organizations ORDER BY name`,
+async function makeReports(scopedOrgId: string | null) {
+  const [orgRows, userRows, classRows, sectionRows, allocationRows, courseRows] = await Promise.all(
+    [
+      scopedOrgId
+        ? db.select().from(organizations).where(eq(organizations.id, scopedOrgId))
+        : db.select().from(organizations),
+      scopedOrgId
+        ? db.select().from(users).where(eq(users.organizationId, scopedOrgId))
+        : db.select().from(users),
+      scopedOrgId
+        ? db.select().from(classes).where(eq(classes.organizationId, scopedOrgId))
+        : db.select().from(classes),
+      db.select({ id: sections.id, classId: sections.classId }).from(sections),
+      scopedOrgId
+        ? db
+            .select()
+            .from(courseAllocations)
+            .where(eq(courseAllocations.organizationId, scopedOrgId))
+        : db.select().from(courseAllocations),
+      db.select({ id: courses.id, title: courses.title }).from(courses),
+    ],
   );
-  const users = await db.execute(sql`SELECT id, organization_id, role, status FROM users`);
-  const classes = await db.execute(sql`SELECT id, organization_id, name FROM classes`);
-  const sections = await db.execute(sql`SELECT id, class_id FROM sections`);
-  const allocations = await db.execute(sql`SELECT id, course_id, status FROM course_allocations`);
+
+  const classIds = new Set(classRows.map((c) => c.id));
+  const relevantSections = sectionRows.filter((s) => classIds.has(s.classId));
+  const relevantSectionIds = relevantSections.map((s) => s.id);
+  const membershipRows = relevantSectionIds.length
+    ? await db
+        .select({
+          sectionId: studentSectionMemberships.sectionId,
+          studentId: studentSectionMemberships.studentId,
+        })
+        .from(studentSectionMemberships)
+        .where(
+          and(
+            inArray(studentSectionMemberships.sectionId, relevantSectionIds),
+            eq(studentSectionMemberships.status, 'ACTIVE'),
+          ),
+        )
+    : [];
+
+  const orgById = new Map(orgRows.map((o) => [o.id, o]));
+  const courseById = new Map(courseRows.map((c) => [c.id, c.title]));
   const generatedAt = new Date().toISOString();
+
   return definitions.map(([id, title, description, columns]) => {
     let rows: Array<{
       key: string;
@@ -78,55 +123,61 @@ async function makeReports() {
       secondary?: string;
       values: Record<string, number | string>;
     }> = [];
+
     if (id === 'organization-students' || id === 'organization-teachers') {
       const role = id === 'organization-students' ? 'STUDENT' : 'TEACHER';
-      rows = (organizations.rows as any[]).map((org) => {
-        const members = (users.rows as any[]).filter(
-          (u) => u.organization_id === org.id && u.role === role,
-        );
+      rows = orgRows
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((org) => {
+          const members = userRows.filter((u) => u.organizationId === org.id && u.role === role);
+          return {
+            key: org.id,
+            label: org.name,
+            secondary: [org.type, org.city].filter(Boolean).join(' · '),
+            values: {
+              [id === 'organization-students' ? 'students' : 'teachers']: members.length,
+              active: members.filter((u) => u.status === 'ACTIVE').length,
+              inactive: members.filter((u) => u.status !== 'ACTIVE').length,
+            },
+          };
+        });
+    } else if (id === 'class-distribution') {
+      rows = classRows.map((c) => {
+        const secIds = new Set(relevantSections.filter((s) => s.classId === c.id).map((s) => s.id));
+        const studentCount = new Set(
+          membershipRows.filter((m) => secIds.has(m.sectionId)).map((m) => m.studentId),
+        ).size;
         return {
-          key: org.id,
-          label: org.name,
-          secondary: [org.type, org.city].filter(Boolean).join(' · '),
+          key: c.id,
+          label: c.name,
+          secondary: orgById.get(c.organizationId)?.name,
           values: {
-            [id === 'organization-students' ? 'students' : 'teachers']: members.length,
-            active: members.filter((u) => u.status === 'ACTIVE').length,
-            inactive: members.filter((u) => u.status !== 'ACTIVE').length,
+            students: studentCount,
+            sections: secIds.size,
           },
         };
       });
-    } else if (id === 'class-distribution') {
-      rows = (classes.rows as any[]).map((c) => ({
-        key: c.id,
-        label: c.name,
-        secondary: (organizations.rows as any[]).find((o) => o.id === c.organization_id)?.name,
-        values: {
-          students: 0,
-          sections: (sections.rows as any[]).filter((s) => s.class_id === c.id).length,
-        },
-      }));
     } else if (id === 'allocation-statistics') {
-      rows = Array.from(new Set((allocations.rows as any[]).map((a) => a.course_id))).map(
-        (courseId) => {
-          const own = (allocations.rows as any[]).filter((a) => a.course_id === courseId);
-          return {
-            key: String(courseId),
-            label: String(courseId),
-            values: {
-              allocations: own.length,
-              active: own.filter((a) => a.status === 'ACTIVE').length,
-            },
-          };
-        },
-      );
+      rows = Array.from(new Set(allocationRows.map((a) => a.courseId))).map((courseId) => {
+        const own = allocationRows.filter((a) => a.courseId === courseId);
+        return {
+          key: String(courseId),
+          label: courseById.get(String(courseId)) || String(courseId),
+          values: {
+            allocations: own.length,
+            active: own.filter((a) => a.status === 'ACTIVE').length,
+          },
+        };
+      });
     } else if (id === 'onboarding-statistics') {
       rows = [
         {
-          key: 'all',
-          label: 'All users',
+          key: scopedOrgId || 'all',
+          label: scopedOrgId ? orgById.get(scopedOrgId)?.name || 'Organization' : 'All users',
           values: {
-            students: (users.rows as any[]).filter((u) => u.role === 'STUDENT').length,
-            teachers: (users.rows as any[]).filter((u) => u.role === 'TEACHER').length,
+            students: userRows.filter((u) => u.role === 'STUDENT').length,
+            teachers: userRows.filter((u) => u.role === 'TEACHER').length,
           },
         },
       ];
@@ -135,9 +186,8 @@ async function makeReports() {
         key: status,
         label: status === 'ACTIVE' ? 'Active' : 'Inactive',
         values: {
-          [status === 'ACTIVE' ? 'active' : 'inactive']: (organizations.rows as any[]).filter(
-            (o) => o.status === status,
-          ).length,
+          [status === 'ACTIVE' ? 'active' : 'inactive']: orgRows.filter((o) => o.status === status)
+            .length,
         },
       }));
     }
@@ -145,18 +195,88 @@ async function makeReports() {
   });
 }
 
+function resolveReportScope(
+  user: { role: any; organizationId: string | null },
+  requestedOrgId?: string,
+): { orgId: string | null; empty: boolean } {
+  if (isPlatformOwnerRole(user.role)) {
+    const clean = requestedOrgId?.trim();
+    return { orgId: clean && clean !== 'ALL' ? clean : null, empty: false };
+  }
+  if (!user.organizationId) {
+    return { orgId: null, empty: true };
+  }
+  return { orgId: user.organizationId, empty: false };
+}
+
 export async function reportRoutes(app: FastifyInstance) {
   app.get(
     '/api/reports',
     { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN')] },
-    async (_request, reply) => reply.send(await makeReports()),
+    async (request, reply) => {
+      const query = request.query as { organizationId?: string };
+      const scope = resolveReportScope(request.user!, query.organizationId);
+      if (scope.empty) {
+        return reply.send([]);
+      }
+      return reply.send(await makeReports(scope.orgId));
+    },
   );
+
+  app.get(
+    '/api/reports/onboarding-series',
+    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN')] },
+    async (request, reply) => {
+      const query = request.query as { organizationId?: string };
+      const scope = resolveReportScope(request.user!, query.organizationId);
+      if (scope.empty) {
+        return reply.send([]);
+      }
+
+      const monthExpr = sql`date_trunc('month', ${users.createdAt})`;
+      const rows = await db
+        .select({
+          monthKey: sql<string>`to_char(${monthExpr}, 'YYYY-MM')`,
+          month: sql<string>`to_char(${monthExpr}, 'Mon YYYY')`,
+          role: users.role,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(users)
+        .where(
+          and(
+            inArray(users.role, ['STUDENT', 'TEACHER']),
+            scope.orgId ? eq(users.organizationId, scope.orgId) : undefined,
+          ),
+        )
+        .groupBy(monthExpr, users.role)
+        .orderBy(monthExpr);
+
+      const grouped = new Map<string, { month: string; students: number; teachers: number }>();
+      for (const row of rows) {
+        const entry = grouped.get(row.monthKey) ?? {
+          month: row.month,
+          students: 0,
+          teachers: 0,
+        };
+        if (row.role === 'STUDENT') entry.students += row.count;
+        if (row.role === 'TEACHER') entry.teachers += row.count;
+        grouped.set(row.monthKey, entry);
+      }
+      return reply.send(Array.from(grouped.values()));
+    },
+  );
+
   app.get(
     '/api/reports/:id',
     { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN')] },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const report = (await makeReports()).find((item) => item.id === id);
+      const query = request.query as { organizationId?: string };
+      const scope = resolveReportScope(request.user!, query.organizationId);
+      if (scope.empty) {
+        return reply.status(404).send({ message: 'Report not found' });
+      }
+      const report = (await makeReports(scope.orgId)).find((item) => item.id === id);
       if (!report) return reply.status(404).send({ message: 'Report not found' });
       return reply.send(report);
     },

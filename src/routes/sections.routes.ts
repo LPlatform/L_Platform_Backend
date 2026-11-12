@@ -10,7 +10,12 @@ import {
   teacherSectionMemberships,
 } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { authenticate, requireRole, checkTenantAccess } from '../middleware/auth.js';
+import {
+  authenticate,
+  isPlatformOwnerRole,
+  requireRole,
+  checkTenantAccess,
+} from '../middleware/auth.js';
 
 export async function sectionRoutes(app: FastifyInstance) {
   // GET /api/sections
@@ -44,8 +49,11 @@ export async function sectionRoutes(app: FastifyInstance) {
         }
         conditions.push(inArray(sections.id, assignedIds));
       } else if (request.user!.role === 'ORGANIZATION_ADMIN') {
+        if (!request.user!.organizationId) {
+          throw Errors.forbidden('Organization admin is not assigned to an organization');
+        }
         const organizationClasses = await db.query.classes.findMany({
-          where: eq(classes.organizationId, request.user!.organizationId!),
+          where: eq(classes.organizationId, request.user!.organizationId),
           columns: { id: true },
         });
         const classIds = organizationClasses.map((academicClass) => academicClass.id);
@@ -171,6 +179,10 @@ export async function sectionRoutes(app: FastifyInstance) {
   // GET /api/sections/:id/roster
   app.get('/api/sections/:id/roster', { preHandler: [authenticate] }, async (request, reply) => {
     const { id } = request.params as { id: string };
+    // Rosters list classmates' personal data; only staff may read them.
+    if (request.user!.role === 'STUDENT') {
+      throw Errors.forbidden('Students cannot view section rosters');
+    }
     const section = await db.query.sections.findFirst({
       where: eq(sections.id, id),
       with: { class: true },
@@ -234,6 +246,12 @@ export async function sectionRoutes(app: FastifyInstance) {
         throw Errors.badRequest('Missing required fields: classId, name');
       }
 
+      const cls = await db.query.classes.findFirst({ where: eq(classes.id, body.classId) });
+      if (!cls) throw Errors.notFound('Class not found');
+      if (!checkTenantAccess(request.user!, cls.organizationId)) {
+        throw Errors.forbidden('Access denied to this class');
+      }
+
       const secId = `sec-${uuidv4().slice(0, 8)}`;
       const newSec = {
         id: secId,
@@ -256,6 +274,13 @@ export async function sectionRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string };
       const body = request.body as any;
 
+      const sec = await db.query.sections.findFirst({
+        where: eq(sections.id, id),
+        with: { class: true },
+      });
+      if (!sec) throw Errors.notFound('Section not found');
+      await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
+
       const updateData: any = { updatedAt: new Date() };
       if (body.name !== undefined) updateData.name = body.name.trim();
       if (body.maxStudents !== undefined) updateData.maxStudents = body.maxStudents;
@@ -275,6 +300,13 @@ export async function sectionRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string };
       const { status } = request.body as { status: string };
 
+      const sec = await db.query.sections.findFirst({
+        where: eq(sections.id, id),
+        with: { class: true },
+      });
+      if (!sec) throw Errors.notFound('Section not found');
+      await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
+
       await db.update(sections).set({ status, updatedAt: new Date() }).where(eq(sections.id, id));
       return reply.send({ success: true, status });
     },
@@ -290,6 +322,30 @@ export async function sectionRoutes(app: FastifyInstance) {
 
       if (!Array.isArray(studentIds) || studentIds.length === 0) {
         throw Errors.badRequest('studentIds must be a non-empty array');
+      }
+
+      const sec = await db.query.sections.findFirst({
+        where: eq(sections.id, id),
+        with: { class: true },
+      });
+      if (!sec) throw Errors.notFound('Section not found');
+      await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
+
+      const targetStudents = await db.query.users.findMany({
+        where: inArray(users.id, studentIds),
+      });
+      if (targetStudents.length !== new Set(studentIds).size) {
+        throw Errors.badRequest('One or more students do not exist');
+      }
+      if (
+        targetStudents.some(
+          (student) =>
+            student.role !== 'STUDENT' || student.organizationId !== sec.class.organizationId,
+        )
+      ) {
+        throw Errors.forbidden(
+          'Only active students belonging to this school organization can be enrolled',
+        );
       }
 
       let assigned = 0;
@@ -328,12 +384,104 @@ export async function sectionRoutes(app: FastifyInstance) {
     },
   );
 
+  // POST /api/sections/:id/students/bulk - CSV bulk assign existing org students by email
+  app.post(
+    '/api/sections/:id/students/bulk',
+    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { csvText?: string; emails?: string[] };
+
+      const sec = await db.query.sections.findFirst({
+        where: eq(sections.id, id),
+        with: { class: true },
+      });
+      if (!sec) throw Errors.notFound('Section not found');
+      await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
+
+      let parsedEmails: string[] = [];
+      if (Array.isArray(body.emails)) {
+        parsedEmails = body.emails.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
+      } else if (typeof body.csvText === 'string' && body.csvText.trim()) {
+        const lines = body.csvText
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        const startIdx = lines[0]?.toLowerCase().includes('email') ? 1 : 0;
+        for (let i = startIdx; i < lines.length; i++) {
+          const email = lines[i].split(',')[0]?.trim().toLowerCase();
+          if (email && email.includes('@')) parsedEmails.push(email);
+        }
+      }
+
+      const uniqueEmails = Array.from(new Set(parsedEmails));
+      if (uniqueEmails.length === 0) {
+        throw Errors.badRequest('Provide valid student email addresses via csvText or emails');
+      }
+
+      const matchingUsers = await db.query.users.findMany({
+        where: and(
+          inArray(users.email, uniqueEmails),
+          eq(users.role, 'STUDENT'),
+          eq(users.organizationId, sec.class.organizationId),
+        ),
+      });
+      const userByEmail = new Map(matchingUsers.map((u) => [u.email.toLowerCase(), u]));
+
+      let assigned = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      for (const email of uniqueEmails) {
+        const student = userByEmail.get(email);
+        if (!student) {
+          skipped++;
+          errors.push(`Student '${email}' not found in this organization`);
+          continue;
+        }
+        const existing = await db.query.studentSectionMemberships.findFirst({
+          where: and(
+            eq(studentSectionMemberships.sectionId, id),
+            eq(studentSectionMemberships.studentId, student.id),
+          ),
+        });
+        if (existing?.status === 'ACTIVE') {
+          skipped++;
+          continue;
+        }
+        if (existing) {
+          await db
+            .update(studentSectionMemberships)
+            .set({ status: 'ACTIVE', joinedAt: new Date(), leftAt: null })
+            .where(eq(studentSectionMemberships.id, existing.id));
+        } else {
+          await db.insert(studentSectionMemberships).values({
+            id: `ssm-${uuidv4().slice(0, 8)}`,
+            sectionId: id,
+            studentId: student.id,
+            status: 'ACTIVE',
+          });
+        }
+        assigned++;
+      }
+
+      return reply.send({ assigned, skipped, total: uniqueEmails.length, errors });
+    },
+  );
+
   // DELETE /api/sections/:id/students/:studentId
   app.delete(
     '/api/sections/:id/students/:studentId',
     { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
     async (request, reply) => {
       const { id, studentId } = request.params as { id: string; studentId: string };
+
+      const sec = await db.query.sections.findFirst({
+        where: eq(sections.id, id),
+        with: { class: true },
+      });
+      if (!sec) throw Errors.notFound('Section not found');
+      await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
 
       await db
         .update(studentSectionMemberships)
@@ -359,6 +507,30 @@ export async function sectionRoutes(app: FastifyInstance) {
 
       if (!Array.isArray(teacherIds) || teacherIds.length === 0) {
         throw Errors.badRequest('teacherIds must be a non-empty array');
+      }
+
+      const sec = await db.query.sections.findFirst({
+        where: eq(sections.id, id),
+        with: { class: true },
+      });
+      if (!sec) throw Errors.notFound('Section not found');
+      await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
+
+      const targetTeachers = await db.query.users.findMany({
+        where: inArray(users.id, teacherIds),
+      });
+      if (targetTeachers.length !== new Set(teacherIds).size) {
+        throw Errors.badRequest('One or more teachers do not exist');
+      }
+      if (
+        targetTeachers.some(
+          (teacher) =>
+            teacher.role !== 'TEACHER' || teacher.organizationId !== sec.class.organizationId,
+        )
+      ) {
+        throw Errors.forbidden(
+          'Only active teachers belonging to this school organization can be assigned',
+        );
       }
 
       let assigned = 0;
@@ -404,6 +576,13 @@ export async function sectionRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id, teacherId } = request.params as { id: string; teacherId: string };
 
+      const sec = await db.query.sections.findFirst({
+        where: eq(sections.id, id),
+        with: { class: true },
+      });
+      if (!sec) throw Errors.notFound('Section not found');
+      await assertSectionAccess(request.user!, sec.id, sec.class.organizationId);
+
       await db
         .update(teacherSectionMemberships)
         .set({ status: 'INACTIVE', removedAt: new Date() })
@@ -420,11 +599,11 @@ export async function sectionRoutes(app: FastifyInstance) {
 }
 
 async function assertSectionAccess(
-  user: { userId: string; role: string; organizationId: string | null },
+  user: { userId: string; role: any; organizationId: string | null },
   sectionId: string,
   organizationId: string,
 ) {
-  if (user.role === 'PLATFORM_ADMIN') return;
+  if (isPlatformOwnerRole(user.role)) return;
   if (user.role === 'ORGANIZATION_ADMIN' && user.organizationId === organizationId) return;
   if (user.role === 'TEACHER') {
     const membership = await db.query.teacherSectionMemberships.findFirst({

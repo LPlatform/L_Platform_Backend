@@ -5,7 +5,12 @@ import { eq, ilike, and, sql, desc } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { organizations, users, classes, courses, auditLogs } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { authenticate, requireRole, checkTenantAccess } from '../middleware/auth.js';
+import {
+  authenticate,
+  isPlatformOwnerRole,
+  requireRole,
+  checkTenantAccess,
+} from '../middleware/auth.js';
 
 async function getOrganizationStats(organizationId: string) {
   const roleCounts = await db
@@ -100,12 +105,16 @@ export async function organizationRoutes(app: FastifyInstance) {
 
   // GET /api/organizations/options
   app.get('/api/organizations/options', { preHandler: [authenticate] }, async (request, reply) => {
-    if (request.user!.role === 'PLATFORM_ADMIN') {
+    if (isPlatformOwnerRole(request.user!.role)) {
       const orgs = await db.query.organizations.findMany({
         where: eq(organizations.status, 'ACTIVE'),
         columns: { id: true, name: true, slug: true },
       });
       return reply.send(orgs);
+    }
+
+    if (request.user!.role === 'PLATFORM_DEVELOPER') {
+      return reply.send([]);
     }
 
     if (request.user!.organizationId) {

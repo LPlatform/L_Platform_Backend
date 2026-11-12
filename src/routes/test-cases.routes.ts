@@ -4,15 +4,52 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { testCases, questions } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { requireRole } from '../middleware/auth.js';
+import { isPlatformDeveloperRole, isPlatformOwnerRole, requireRole } from '../middleware/auth.js';
+
+async function assertQuestionAccess(
+  user: { role: any; organizationId: string | null },
+  questionId: string,
+  requireWrite: boolean,
+) {
+  const q = await db.query.questions.findFirst({ where: eq(questions.id, questionId) });
+  if (!q) throw Errors.notFound('Question not found');
+  if (isPlatformOwnerRole(user.role)) return q;
+  if (isPlatformDeveloperRole(user.role)) {
+    if (q.organizationId !== null) {
+      throw Errors.forbidden('Platform developers can only access platform question test cases');
+    }
+    return q;
+  }
+  if (q.organizationId === null) {
+    if (requireWrite) {
+      throw Errors.forbidden('Only platform staff can modify platform bank test cases');
+    }
+    return q;
+  }
+  if (!user.organizationId || q.organizationId !== user.organizationId) {
+    throw Errors.forbidden('Access denied to this question test cases');
+  }
+  return q;
+}
 
 export async function testCaseRoutes(app: FastifyInstance) {
   // GET /api/questions/:questionId/test-cases - Only teachers and admins!
   app.get(
     '/api/questions/:questionId/test-cases',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const { questionId } = request.params as { questionId: string };
+      await assertQuestionAccess(request.user!, questionId, false);
 
       const list = await db.query.testCases.findMany({
         where: eq(testCases.questionId, questionId),
@@ -26,7 +63,17 @@ export async function testCaseRoutes(app: FastifyInstance) {
   // POST /api/questions/:questionId/test-cases
   app.post(
     '/api/questions/:questionId/test-cases',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const { questionId } = request.params as { questionId: string };
       const body = request.body as any;
@@ -35,8 +82,7 @@ export async function testCaseRoutes(app: FastifyInstance) {
         throw Errors.badRequest('Input and expectedOutput are required');
       }
 
-      const q = await db.query.questions.findFirst({ where: eq(questions.id, questionId) });
-      if (!q) throw Errors.notFound('Question not found');
+      await assertQuestionAccess(request.user!, questionId, true);
 
       const existing = await db.query.testCases.findMany({
         where: eq(testCases.questionId, questionId),
@@ -63,13 +109,24 @@ export async function testCaseRoutes(app: FastifyInstance) {
   // PATCH /api/test-cases/:id
   app.patch(
     '/api/test-cases/:id',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const body = request.body as any;
 
       const tc = await db.query.testCases.findFirst({ where: eq(testCases.id, id) });
       if (!tc) throw Errors.notFound('Test case not found');
+      await assertQuestionAccess(request.user!, tc.questionId, true);
 
       const updateData: any = { updatedAt: new Date() };
       if (body.input !== undefined) updateData.input = body.input;
@@ -89,9 +146,23 @@ export async function testCaseRoutes(app: FastifyInstance) {
   // DELETE /api/test-cases/:id
   app.delete(
     '/api/test-cases/:id',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      const tc = await db.query.testCases.findFirst({ where: eq(testCases.id, id) });
+      if (!tc) throw Errors.notFound('Test case not found');
+      await assertQuestionAccess(request.user!, tc.questionId, true);
+
       await db.delete(testCases).where(eq(testCases.id, id));
       return reply.send({ success: true });
     },
@@ -100,12 +171,23 @@ export async function testCaseRoutes(app: FastifyInstance) {
   // POST /api/questions/:questionId/test-cases/reorder
   app.post(
     '/api/questions/:questionId/test-cases/reorder',
-    { preHandler: [requireRole('PLATFORM_ADMIN', 'ORGANIZATION_ADMIN', 'TEACHER')] },
+    {
+      preHandler: [
+        requireRole(
+          'PLATFORM_OWNER',
+          'PLATFORM_DEVELOPER',
+          'PLATFORM_ADMIN',
+          'ORGANIZATION_ADMIN',
+          'TEACHER',
+        ),
+      ],
+    },
     async (request, reply) => {
       const { questionId } = request.params as { questionId: string };
       const { orderIds } = request.body as { orderIds: string[] };
 
       if (!Array.isArray(orderIds)) throw Errors.badRequest('orderIds array is required');
+      await assertQuestionAccess(request.user!, questionId, true);
 
       for (let i = 0; i < orderIds.length; i++) {
         await db

@@ -5,7 +5,7 @@ import { and, desc, eq, ilike, sql } from 'drizzle-orm';
 import { db } from '../db/connection.js';
 import { invitations, organizations } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { requireRole } from '../middleware/auth.js';
+import { isPlatformOwnerRole, requireRole } from '../middleware/auth.js';
 
 async function toInvitationDto(invitation: typeof invitations.$inferSelect) {
   const organization = await db.query.organizations.findFirst({
@@ -29,11 +29,11 @@ async function toInvitationDto(invitation: typeof invitations.$inferSelect) {
 
 async function getManagedInvitation(
   id: string,
-  user: { role: string; organizationId: string | null },
+  user: { role: any; organizationId: string | null },
 ) {
   const invitation = await db.query.invitations.findFirst({ where: eq(invitations.id, id) });
   if (!invitation) throw Errors.notFound('Invitation not found');
-  if (user.role !== 'PLATFORM_ADMIN' && invitation.organizationId !== user.organizationId) {
+  if (!isPlatformOwnerRole(user.role) && invitation.organizationId !== user.organizationId) {
     throw Errors.forbidden('You do not have access to this invitation');
   }
   return invitation;
@@ -48,7 +48,12 @@ export async function invitationRoutes(app: FastifyInstance) {
       const page = Math.max(1, parseInt(query.page || '1', 10));
       const pageSize = Math.max(1, Math.min(100, parseInt(query.pageSize || '20', 10)));
       let organizationId = query.organizationId?.trim();
-      if (request.user!.role !== 'PLATFORM_ADMIN') organizationId = request.user!.organizationId;
+      if (!isPlatformOwnerRole(request.user!.role)) {
+        organizationId = request.user!.organizationId || undefined;
+        if (!organizationId) {
+          return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+        }
+      }
 
       const conditions: any[] = [];
       if (organizationId && organizationId !== 'ALL') {
@@ -86,11 +91,21 @@ export async function invitationRoutes(app: FastifyInstance) {
       const body = request.body as any;
       const recipient = body.email ?? body.recipient;
       if (!recipient) throw Errors.badRequest('Recipient is required');
+      const isPlatformOwner = isPlatformOwnerRole(request.user!.role);
       let organizationId = body.organizationId;
-      if (request.user!.role !== 'PLATFORM_ADMIN') organizationId = request.user!.organizationId;
+      if (!isPlatformOwner) organizationId = request.user!.organizationId;
       if (!organizationId) throw Errors.badRequest('organizationId is required');
       if (!['EMAIL', 'USERNAME', undefined].includes(body.channel)) {
         throw Errors.badRequest('Unsupported invitation channel');
+      }
+      const requestedRole = String(body.role || 'STUDENT').trim();
+      const allowedInviteRoles = isPlatformOwner
+        ? ['ORGANIZATION_ADMIN', 'TEACHER', 'STUDENT']
+        : ['TEACHER', 'STUDENT'];
+      if (!allowedInviteRoles.includes(requestedRole)) {
+        throw Errors.forbidden(
+          `Role '${requestedRole}' cannot be invited by ${request.user!.role}`,
+        );
       }
 
       const organization = await db.query.organizations.findFirst({

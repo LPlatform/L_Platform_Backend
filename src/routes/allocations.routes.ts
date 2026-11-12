@@ -12,7 +12,12 @@ import {
   users,
 } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { authenticate, checkTenantAccess, requireRole } from '../middleware/auth.js';
+import {
+  authenticate,
+  checkTenantAccess,
+  isPlatformOwnerRole,
+  requireRole,
+} from '../middleware/auth.js';
 
 type AllocationRow = typeof courseAllocations.$inferSelect;
 
@@ -109,7 +114,7 @@ export async function allocationRoutes(app: FastifyInstance) {
       const pageSize = Math.max(1, Math.min(100, parseInt(query.pageSize || '20', 10)));
       const conditions: any[] = [];
 
-      if (request.user!.role !== 'PLATFORM_ADMIN') {
+      if (!isPlatformOwnerRole(request.user!.role)) {
         if (request.user!.organizationId) {
           conditions.push(eq(courseAllocations.organizationId, request.user!.organizationId));
         } else {
@@ -195,7 +200,7 @@ export async function allocationRoutes(app: FastifyInstance) {
         throw Errors.badRequest('Invalid allocation scope');
       }
       if (
-        request.user!.role !== 'PLATFORM_ADMIN' &&
+        !isPlatformOwnerRole(request.user!.role) &&
         !checkTenantAccess(request.user!, body.organizationId)
       ) {
         throw Errors.forbidden('You do not have access to this organization');

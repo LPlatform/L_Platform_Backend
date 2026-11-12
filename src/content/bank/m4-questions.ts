@@ -1,0 +1,850 @@
+import { buildModuleQuestions, type BankQuestionSpec } from './types.js';
+
+export const m4Questions: BankQuestionSpec[] = buildModuleQuestions('m4-capstone', 4, [
+  // 20 SINGLE_MCQ
+  {
+    slug: 'capstone-purpose',
+    type: 'SINGLE_MCQ',
+    title: 'Core Goal of an AI Capstone Project',
+    prompt: 'What best describes the educational purpose of an AI Capstone Project?',
+    topic: 'Capstone Overview',
+    difficulty: 'EASY',
+    sourcePage: '56, 68',
+    lessonId: 'm4-l1',
+    objective: 'Define Capstone Project goals.',
+    explanation:
+      'A capstone lets learners investigate a real problem deeply and integrate technical and analytical concepts into an evaluated prototype.',
+    options: [
+      {
+        text: 'Integrating subject knowledge to investigate and solve a meaningful real-world problem',
+        correct: true,
+      },
+      { text: 'Copying an existing demo without scoping user needs' },
+      { text: 'Memorizing textbook definitions without building anything' },
+      { text: 'Writing unverified claims without testing' },
+    ],
+  },
+  {
+    slug: 'question-classification',
+    type: 'SINGLE_MCQ',
+    title: 'Mapping Problem Question to Classification',
+    prompt: 'Which fundamental predictive question corresponds to Classification in Unit 4?',
+    topic: 'Problem Framing',
+    difficulty: 'EASY',
+    sourcePage: '57, 68',
+    lessonId: 'm4-l1',
+    objective: 'Map task phrasing to ML families.',
+    explanation:
+      'Unit 4 groups predictive questions into Classification ("Which category?"), Regression ("How much/many?"), Clustering ("Which group?") and Anomaly Detection ("Is this unusual?").',
+    options: [
+      { text: '"Which category?"', correct: true },
+      { text: '"How much or how many?"' },
+      { text: '"Should we skip planning?"' },
+      { text: '"Is the hardware plugged in?"' },
+    ],
+  },
+  {
+    slug: 'question-regression',
+    type: 'SINGLE_MCQ',
+    title: 'Mapping Problem Question to Regression',
+    prompt:
+      'If a student capstone asks "How many kilowatt-hours of solar energy will the roof generate tomorrow?", which AI task type fits best?',
+    topic: 'Problem Framing',
+    difficulty: 'EASY',
+    sourcePage: '57',
+    lessonId: 'm4-l1',
+    objective: 'Identify Regression tasks.',
+    explanation: 'Predicting a numeric quantity ("How much or how many?") is Regression.',
+    options: [
+      { text: 'Classification' },
+      { text: 'Regression', correct: true },
+      { text: 'Clustering' },
+      { text: 'Anomaly Detection' },
+    ],
+  },
+  {
+    slug: 'question-anomaly',
+    type: 'SINGLE_MCQ',
+    title: 'Anomaly Detection Framing Question',
+    prompt:
+      'Detecting sudden suspicious nighttime water flow spikes in a school campus pipe addresses which core framing question?',
+    topic: 'Problem Framing',
+    difficulty: 'EASY',
+    sourcePage: '57',
+    lessonId: 'm4-l1',
+    objective: 'Identify Anomaly Detection tasks.',
+    explanation: '"Is this weird or unusual?" corresponds directly to Anomaly Detection.',
+    options: [
+      { text: '"Which predefined breed is this?"' },
+      { text: '"Is this reading unusual?" (Anomaly Detection)', correct: true },
+      { text: '"What font matches this logo?"' },
+      { text: '"How do we sort alphabetically?"' },
+    ],
+  },
+  {
+    slug: 'problem-decomp-step1',
+    type: 'SINGLE_MCQ',
+    title: 'Purpose of Problem Decomposition',
+    prompt:
+      'Why does Unit 4 recommend Problem Decomposition on big societal challenges such as city traffic congestion?',
+    topic: 'Problem Decomposition',
+    difficulty: 'EASY',
+    sourcePage: '57-58',
+    lessonId: 'm4-l1',
+    objective: 'Apply problem decomposition systematically.',
+    explanation:
+      'Breaking a large complex issue into smaller root factors (road conditions, signal timing, driver speeding) makes sub-problems solvable and measurable.',
+    options: [
+      {
+        text: 'To break a broad problem into concrete root causes and manageable sub-problems',
+        correct: true,
+      },
+      { text: 'To avoid talking to users before coding' },
+      { text: 'To combine unrelated tasks into one huge black box' },
+      { text: 'To delete historical accident logs' },
+    ],
+  },
+  {
+    slug: 'dt-five-stages',
+    type: 'SINGLE_MCQ',
+    title: 'Order of the Design Thinking Framework',
+    prompt: 'Which sequence lists the five stages of Design Thinking in the correct order?',
+    topic: 'Design Thinking',
+    difficulty: 'EASY',
+    sourcePage: '58-63',
+    lessonId: 'm4-l1',
+    objective: 'Sequence all 5 Design Thinking stages.',
+    explanation:
+      'Design Thinking moves through Empathize -> Define -> Ideate -> Prototype -> Test.',
+    options: [
+      { text: 'Define -> Test -> Empathize -> Code -> Launch' },
+      { text: 'Empathize -> Define -> Ideate -> Prototype -> Test', correct: true },
+      { text: 'Prototype -> Ideate -> Ignore -> Publish -> Define' },
+      { text: 'Ideate -> Empathize -> Sell -> Test -> Define' },
+    ],
+  },
+  {
+    slug: 'empathy-stage-goal',
+    type: 'SINGLE_MCQ',
+    title: 'Starting Design Thinking with Empathy',
+    prompt: 'What is the primary discipline required during the Empathize stage?',
+    topic: 'Design Thinking',
+    difficulty: 'EASY',
+    sourcePage: '59',
+    lessonId: 'm4-l1',
+    objective: 'Understand Empathize without bias.',
+    explanation:
+      'Empathize asks teams to set aside preconceived assumptions and observe/listen to real people experiencing the problem.',
+    options: [
+      { text: 'Writing neural-network code before meeting any users' },
+      {
+        text: 'Setting aside assumptions and immersing in real users’ lived experience and context',
+        correct: true,
+      },
+      { text: 'Picking whichever flashy AI library is trending online' },
+      { text: 'Skipping stakeholder interviews to save two days' },
+    ],
+  },
+  {
+    slug: 'empathy-map-quadrants',
+    type: 'SINGLE_MCQ',
+    title: 'Quadrants of an Empathy Map',
+    prompt:
+      'Which four observations form the classic Empathy Map grid introduced in Unit 4 (e.g. Anakha’s Empathy Map)?',
+    topic: 'Empathy Map',
+    difficulty: 'EASY',
+    sourcePage: '59-60',
+    lessonId: 'm4-l1',
+    objective: 'Recall Says/Thinks/Does/Feels quadrants.',
+    explanation: 'An Empathy Map organizes user insights into Says, Thinks, Does and Feels.',
+    options: [
+      { text: 'Code, Compile, Run, Debug' },
+      { text: 'Says, Thinks, Does, Feels', correct: true },
+      { text: 'Price, Profit, Marketing, Tax' },
+      { text: 'Hardware, Software, Cloud, Storage' },
+    ],
+  },
+  {
+    slug: '5w1h-odd-one',
+    type: 'SINGLE_MCQ',
+    title: 'Elements of the 5W1H Define Canvas',
+    prompt: 'Which word is NOT part of the 5W1H problem definition method?',
+    topic: '5W1H Method',
+    difficulty: 'EASY',
+    sourcePage: '61, 67, 69',
+    lessonId: 'm4-l1',
+    objective: 'Identify Who, What, Where, When, Why, How.',
+    explanation: '5W1H asks Who, What, Where, When, Why and How — "While" is not one of them.',
+    options: [
+      { text: 'Who' },
+      { text: 'While', correct: true },
+      { text: 'Where' },
+      { text: 'When' },
+    ],
+  },
+  {
+    slug: '5w1h-who-question',
+    type: 'SINGLE_MCQ',
+    title: 'Identifying Stakeholders in 5W1H',
+    prompt: 'In the 5W1H problem statement template, what does the "Who" block establish?',
+    topic: '5W1H Method',
+    difficulty: 'EASY',
+    sourcePage: '61, 66',
+    lessonId: 'm4-l1',
+    objective: 'Identify affected stakeholders in problem framing.',
+    explanation:
+      '"Who" pinpoints the people suffering from or impacted by the problem (the stakeholders).',
+    options: [
+      { text: 'Which CPU brand executes the model' },
+      { text: 'Who experiences the problem or participates as stakeholders', correct: true },
+      { text: 'Which programming language syntax is prettiest' },
+      { text: 'Where backup servers sit physically' },
+    ],
+  },
+  {
+    slug: 'ideate-principle',
+    type: 'SINGLE_MCQ',
+    title: 'Rule During Brainstorming in Ideate',
+    prompt:
+      'During the Ideate stage, why do teams generate many varied ideas before narrowing down?',
+    topic: 'Design Thinking',
+    difficulty: 'MEDIUM',
+    sourcePage: '62-63',
+    lessonId: 'm4-l1',
+    objective: 'Apply divergent then convergent ideation.',
+    explanation:
+      'Divergent brainstorming uncovers simpler, creative or non-AI alternatives rather than anchoring prematurely on the first idea.',
+    options: [
+      {
+        text: 'To explore broad possibilities including simpler non-AI alternatives before selecting feasible options',
+        correct: true,
+      },
+      { text: 'Because only the 20th idea is legally valid' },
+      { text: 'To ensure teams never pick an affordable approach' },
+      { text: 'To eliminate prototype testing later' },
+    ],
+  },
+  {
+    slug: 'sdg-count',
+    type: 'SINGLE_MCQ',
+    title: 'UN Sustainable Development Goals Link',
+    prompt:
+      'Why does Unit 4 connect AI capstone topics to the United Nations Sustainable Development Goals (SDGs)?',
+    topic: 'Sustainable Development Goals',
+    difficulty: 'EASY',
+    sourcePage: '64',
+    lessonId: 'm4-l2',
+    objective: 'Align technical projects with meaningful global goals.',
+    explanation:
+      'Aligning capstones to the 17 UN SDGs focuses student projects on genuine human, environmental and community welfare.',
+    options: [
+      {
+        text: 'To ground technical builds in urgent human, educational and environmental impact areas',
+        correct: true,
+      },
+      { text: 'Because UN officials grade every classroom quiz personally' },
+      { text: 'To forbid healthcare and education projects' },
+      { text: 'To mandate satellite hardware on every assignment' },
+    ],
+  },
+  {
+    slug: 'prototype-storyboard',
+    type: 'SINGLE_MCQ',
+    title: 'Low-Fidelity Capstone Prototyping',
+    prompt:
+      'In Unit 4 (p.68), how can a team prototype a student-admission chatbot before building full backend ML?',
+    topic: 'Prototyping',
+    difficulty: 'MEDIUM',
+    sourcePage: '68',
+    lessonId: 'm4-l2',
+    objective: 'Build early testable low-fidelity prototypes.',
+    explanation:
+      'Mapping intents, entities and dialogue paths visually on paper or flowcharts checks user comprehension cheaply before full coding.',
+    options: [
+      {
+        text: 'Drawing user conversation flows, intents and entities as an interactive sketch/flowchart first',
+        correct: true,
+      },
+      { text: 'Renting ten GPU clusters before speaking with a single applicant' },
+      { text: 'Skipping any user flow design until after deployment' },
+      { text: 'Writing raw assembly code directly for mobile screens' },
+    ],
+  },
+  {
+    slug: 'non-ai-baseline',
+    type: 'SINGLE_MCQ',
+    title: 'Considering a Non-AI Baseline',
+    prompt:
+      'Why should a capstone abstract evaluate whether a simple deterministic rule or non-AI baseline solves the problem well enough?',
+    topic: 'Project Scoping',
+    difficulty: 'MEDIUM',
+    sourcePage: '56, 65',
+    lessonId: 'm4-l2',
+    objective: 'Avoid unnecessary AI complexity.',
+    explanation:
+      'If a simple rule or search index solves the problem reliably at lower cost and risk, AI is unwarranted—or provides a clear benchmark to beat.',
+    options: [
+      {
+        text: 'A simpler rule might be clearer, cheaper and safer, or serve as a measurable comparison baseline',
+        correct: true,
+      },
+      { text: 'Non-AI baselines are illegal in science fairs' },
+      { text: 'Baselines delete training data automatically' },
+      { text: 'To prove computers cannot evaluate simple rules' },
+    ],
+  },
+  {
+    slug: 'define-stage-input',
+    type: 'SINGLE_MCQ',
+    title: 'Input to the Define Stage',
+    prompt: 'Where do insights used to craft the problem statement in the Define stage originate?',
+    topic: 'Design Thinking',
+    difficulty: 'EASY',
+    sourcePage: '59-61',
+    lessonId: 'm4-l1',
+    objective: 'Trace Empathize -> Define linkage.',
+    explanation:
+      'Information gathered from real user observation/interviews during Empathize directly informs the Define problem statement.',
+    options: [
+      {
+        text: 'Observations and empathy findings collected from real users during the Empathize stage',
+        correct: true,
+      },
+      { text: 'Random guesses made after publishing' },
+      { text: 'Hidden benchmark answers from test suites' },
+      { text: 'Hardware vendor advertisements' },
+    ],
+  },
+  {
+    slug: 'test-stage-iteration',
+    type: 'SINGLE_MCQ',
+    title: 'Handling Prototype Failures in the Test Stage',
+    prompt:
+      'When user testing shows students misunderstand your capstone prototype’s prompt, what does Design Thinking recommend?',
+    topic: 'Testing & Iteration',
+    difficulty: 'EASY',
+    sourcePage: '63, 68',
+    lessonId: 'm4-l2',
+    objective: 'Embrace iterative feedback loops.',
+    explanation:
+      'Test findings feed back iteratively into Define, Ideate or Prototype adjustments rather than hiding errors.',
+    options: [
+      {
+        text: 'Treat feedback as evidence to refine the problem framing or prototype iteratively',
+        correct: true,
+      },
+      { text: 'Delete failing test users from evaluation logs' },
+      { text: 'Insist users memorized instructions incorrectly' },
+      { text: 'Skip documentation of known failures' },
+    ],
+  },
+  {
+    slug: 'scope-boundary',
+    type: 'SINGLE_MCQ',
+    title: 'Out-of-Scope Boundaries in a Capstone',
+    prompt:
+      'Why is explicitly defining an "out-of-scope" section valuable in a student capstone plan?',
+    topic: 'Project Scoping',
+    difficulty: 'MEDIUM',
+    sourcePage: '65',
+    lessonId: 'm4-l2',
+    objective: 'Manage scope constraints realistically.',
+    explanation:
+      'Clear out-of-scope rules keep the project feasible within semester time, safe public data and verification limits.',
+    options: [
+      {
+        text: 'It keeps deliverables realistic for available time, data access and testing capacity',
+        correct: true,
+      },
+      { text: 'It lets teams omit testing the core feature' },
+      { text: 'It hides privacy obligations' },
+      { text: 'It eliminates the need for problem statements' },
+    ],
+  },
+  {
+    slug: 'clustering-question',
+    type: 'SINGLE_MCQ',
+    title: 'Framing Question for Clustering',
+    prompt:
+      'A school library wants to discover natural groups of frequently co-borrowed books without predefined genres. Which framing question fits?',
+    topic: 'Problem Framing',
+    difficulty: 'MEDIUM',
+    sourcePage: '57',
+    lessonId: 'm4-l1',
+    objective: 'Identify Clustering problem framing.',
+    explanation: '"Which group?" without predefined category labels maps to Clustering.',
+    options: [
+      { text: '"Which group?" (Clustering)', correct: true },
+      { text: '"How much budget?" (Regression)' },
+      { text: '"Is this clock broken?" (Fixed timer)' },
+      { text: '"Multiply two matrices" (Arithmetic)' },
+    ],
+  },
+  {
+    slug: 'data-availability-check',
+    type: 'SINGLE_MCQ',
+    title: 'Checking Data Requirements Early',
+    prompt:
+      'Before committing to a medical-diagnosis capstone, what ethical and practical question must a student team check first?',
+    topic: 'Data Requirements',
+    difficulty: 'MEDIUM',
+    sourcePage: '65-67',
+    lessonId: 'm4-l2',
+    objective: 'Validate safe, lawful data availability.',
+    explanation:
+      'Teams must confirm whether ethically sourced, consented, de-identified data exists—not assume private medical data is freely usable.',
+    options: [
+      {
+        text: 'Whether safe, properly consented, representative data is legally accessible and sufficient',
+        correct: true,
+      },
+      { text: 'Whether a 3D animated logo looks impressive' },
+      { text: 'Whether anyone will notice missing consent forms' },
+      { text: 'Whether private patient records can be scraped anonymously' },
+    ],
+  },
+  {
+    slug: 'demo-vs-evidence',
+    type: 'SINGLE_MCQ',
+    title: 'Evaluating Capstone Credibility',
+    prompt:
+      'When presenting a final AI capstone, what makes evaluation findings scientifically credible?',
+    topic: 'Presentation & Evaluation',
+    difficulty: 'MEDIUM',
+    sourcePage: '65-70',
+    lessonId: 'm4-l2',
+    objective: 'Report metrics, failure modes and next steps transparently.',
+    explanation:
+      'Credible presentations pair quantitative held-out results and baseline comparisons with honest discussion of failure cases and limitations.',
+    options: [
+      {
+        text: 'Reporting held-out test metrics, baseline comparisons, error examples and honest limitations',
+        correct: true,
+      },
+      { text: 'Showing only two cherry-picked screenshots that worked' },
+      { text: 'Omitting how training and test data were split' },
+      { text: 'Claiming 100% reliability under every real condition' },
+    ],
+  },
+
+  // 5 MULTI_SELECT
+  {
+    slug: 'dt-stages-multi',
+    type: 'MULTI_SELECT',
+    title: 'Design Thinking Framework Stages',
+    prompt: 'Select ALL five stages belonging to the Design Thinking methodology.',
+    topic: 'Design Thinking',
+    difficulty: 'EASY',
+    sourcePage: '58-63',
+    lessonId: 'm4-l1',
+    objective: 'Recognize all 5 Design Thinking stages.',
+    explanation: 'Empathize, Define, Ideate, Prototype and Test are the 5 Design Thinking stages.',
+    options: [
+      { text: 'Empathize', correct: true },
+      { text: 'Define', correct: true },
+      { text: 'Ideate', correct: true },
+      { text: 'Prototype & Test', correct: true },
+      { text: 'Monopolize' },
+    ],
+  },
+  {
+    slug: 'four-ai-questions-multi',
+    type: 'MULTI_SELECT',
+    title: 'Core Data Science Question Types',
+    prompt: 'Select ALL canonical AI question families described in Unit 4.',
+    topic: 'Problem Framing',
+    difficulty: 'EASY',
+    sourcePage: '57',
+    lessonId: 'm4-l1',
+    objective: 'Recall the 4 core problem categories.',
+    explanation:
+      'Classification, Regression, Clustering and Anomaly Detection form the unit’s four framing categories.',
+    options: [
+      { text: 'Classification ("Which category?")', correct: true },
+      { text: 'Regression ("How much / how many?")', correct: true },
+      { text: 'Clustering ("Which group?")', correct: true },
+      { text: 'Anomaly Detection ("Is this unusual?")', correct: true },
+    ],
+  },
+  {
+    slug: 'empathy-map-multi',
+    type: 'MULTI_SELECT',
+    title: 'Empathy Map Quadrants',
+    prompt: 'Select ALL four quadrants used in an Empathy Map during user research.',
+    topic: 'Empathy Map',
+    difficulty: 'EASY',
+    sourcePage: '59-60',
+    lessonId: 'm4-l1',
+    objective: 'Identify Says/Thinks/Does/Feels.',
+    explanation: 'Empathy Maps capture what the stakeholder Says, Thinks, Does and Feels.',
+    options: [
+      { text: 'Says', correct: true },
+      { text: 'Thinks', correct: true },
+      { text: 'Does', correct: true },
+      { text: 'Feels', correct: true },
+      { text: 'Compiles' },
+    ],
+  },
+  {
+    slug: 'project-abstract-parts',
+    type: 'MULTI_SELECT',
+    title: 'Essential Components of a Capstone Abstract',
+    prompt: 'Which components belong in a complete Capstone Project Abstract?',
+    topic: 'Project Documentation',
+    difficulty: 'MEDIUM',
+    sourcePage: '65-68',
+    lessonId: 'm4-l2',
+    objective: 'Structure a complete Capstone Abstract.',
+    explanation:
+      'A solid abstract states target users/problem, SDG alignment, data sources/consent, prototype approach, evaluation criteria and risks.',
+    options: [
+      { text: 'Clear 5W1H problem definition and target user group', correct: true },
+      { text: 'Required datasets, privacy boundaries and baseline comparison', correct: true },
+      { text: 'Chosen evaluation metric and known risks/limitations', correct: true },
+      { text: 'Fabricated test metrics guaranteed to pass' },
+    ],
+  },
+  {
+    slug: 'decomposition-benefits',
+    type: 'MULTI_SELECT',
+    title: 'Benefits of Problem Decomposition',
+    prompt: 'What advantages come from decomposing a complex community issue before coding?',
+    topic: 'Problem Decomposition',
+    difficulty: 'MEDIUM',
+    sourcePage: '57-58',
+    lessonId: 'm4-l1',
+    objective: 'Justify structured problem breakdown.',
+    explanation:
+      'Decomposition isolates concrete root causes, prevents vague goals and identifies which smaller sub-problems benefit from data vs policy.',
+    options: [
+      { text: 'Reveals distinct root causes instead of one overwhelming symptom', correct: true },
+      {
+        text: 'Clarifies which sub-tasks actually need AI vs simpler policy/workflow fixes',
+        correct: true,
+      },
+      { text: 'Lets teammates test smaller modules independently', correct: true },
+      { text: 'Guarantees zero need for stakeholder validation' },
+    ],
+  },
+
+  // 5 TRUE_FALSE
+  {
+    slug: 'tf-ai-first-trap',
+    type: 'TRUE_FALSE',
+    title: 'Choosing Technology Before Understanding Users',
+    prompt:
+      'True or False: In Design Thinking, teams should pick their deep learning neural network architecture before interviewing stakeholders or defining the problem.',
+    topic: 'Design Thinking',
+    difficulty: 'EASY',
+    sourcePage: '58-61',
+    lessonId: 'm4-l1',
+    objective: 'Prioritize user problem over premature tech lock-in.',
+    explanation:
+      'False. Design Thinking starts with Empathize and Define so technology serves a validated human need.',
+    correctBoolean: false,
+  },
+  {
+    slug: 'tf-regression-continuous',
+    type: 'TRUE_FALSE',
+    title: 'Regression Output Type',
+    prompt:
+      'True or False: Answering "How many meals will the canteen serve today?" is a Regression framing question.',
+    topic: 'Problem Framing',
+    difficulty: 'EASY',
+    sourcePage: '57',
+    lessonId: 'm4-l1',
+    objective: 'Confirm numeric prediction -> Regression.',
+    explanation:
+      'True. Predicting numeric quantities ("how much / how many") corresponds to Regression.',
+    correctBoolean: true,
+  },
+  {
+    slug: 'tf-iteration-back',
+    type: 'TRUE_FALSE',
+    title: 'Non-Linear Iteration in Design Thinking',
+    prompt:
+      'True or False: Findings discovered during Testing can send a team back to revisit Define or Prototype rather than flowing strictly one-way.',
+    topic: 'Design Thinking',
+    difficulty: 'EASY',
+    sourcePage: '58-63',
+    lessonId: 'm4-l2',
+    objective: 'Understand iterative Design Thinking.',
+    explanation: 'True. Design Thinking is inherently iterative.',
+    correctBoolean: true,
+  },
+  {
+    slug: 'tf-sdg-relevance',
+    type: 'TRUE_FALSE',
+    title: 'SDGs in Student Capstones',
+    prompt:
+      'True or False: The Sustainable Development Goals (SDGs) were adopted by the United Nations to address global social, economic and environmental challenges.',
+    topic: 'Sustainable Development Goals',
+    difficulty: 'EASY',
+    sourcePage: '64',
+    lessonId: 'm4-l2',
+    objective: 'Verify SDG context.',
+    explanation: 'True. The 17 UN SDGs frame global sustainability priorities through 2030.',
+    correctBoolean: true,
+  },
+  {
+    slug: 'tf-5w1h-when',
+    type: 'TRUE_FALSE',
+    title: '5W1H Context Coverage',
+    prompt:
+      'True or False: Including "When" and "Where" in a 5W1H problem statement helps teams discover peak bottlenecks such as school admission queues.',
+    topic: '5W1H Method',
+    difficulty: 'EASY',
+    sourcePage: '67',
+    lessonId: 'm4-l1',
+    objective: 'Apply time and context framing.',
+    explanation:
+      'True. Unit 4’s admission case shows "When" reveals time-bound admission congestion patterns.',
+    correctBoolean: true,
+  },
+
+  // 5 FILL_BLANK
+  {
+    slug: 'fb-empathy-first',
+    type: 'FILL_BLANK',
+    title: 'First Stage of Design Thinking',
+    prompt:
+      'The very first stage of the five-step Design Thinking framework, focused on understanding users without assumptions, is called ______.',
+    topic: 'Design Thinking',
+    difficulty: 'EASY',
+    sourcePage: '59',
+    lessonId: 'm4-l1',
+    objective: 'Recall Empathize stage.',
+    explanation: 'Empathize opens the Design Thinking cycle.',
+    acceptedAnswers: ['Empathize', 'Empathise'],
+  },
+  {
+    slug: 'fb-5w1h-define',
+    type: 'FILL_BLANK',
+    title: 'Define Stage Questioning Method',
+    prompt:
+      'In the Define stage, the structured problem canvas asking Who, What, Where, When, Why and How is abbreviated ______.',
+    topic: '5W1H Method',
+    difficulty: 'EASY',
+    sourcePage: '61, 67',
+    lessonId: 'm4-l1',
+    objective: 'Recall 5W1H abbreviation.',
+    explanation: '5W1H captures the 5 W questions plus How.',
+    acceptedAnswers: ['5W1H'],
+  },
+  {
+    slug: 'fb-classification-cat',
+    type: 'FILL_BLANK',
+    title: 'Task for "Which Category?"',
+    prompt:
+      'When an AI problem asks "Which predefined category does this item belong to?", it is framed as ______.',
+    topic: 'Problem Framing',
+    difficulty: 'EASY',
+    sourcePage: '57',
+    lessonId: 'm4-l1',
+    objective: 'Name Classification.',
+    explanation: 'Predicting predefined discrete labels is Classification.',
+    acceptedAnswers: ['Classification'],
+  },
+  {
+    slug: 'fb-sdg-expand',
+    type: 'FILL_BLANK',
+    title: 'SDG Abbreviation',
+    prompt: 'In capstone alignment, SDG stands for Sustainable ______ Goals.',
+    topic: 'Sustainable Development Goals',
+    difficulty: 'EASY',
+    sourcePage: '64',
+    lessonId: 'm4-l2',
+    objective: 'Expand SDG acronym.',
+    explanation: 'Sustainable Development Goals.',
+    acceptedAnswers: ['Development'],
+  },
+  {
+    slug: 'fb-decomposition',
+    type: 'FILL_BLANK',
+    title: 'Breaking Complex Issues into Sub-Problems',
+    prompt:
+      'Breaking down a complex challenge like city congestion into root factors such as signals, roads and driver speed is called Problem ______.',
+    topic: 'Problem Decomposition',
+    difficulty: 'EASY',
+    sourcePage: '57-58',
+    lessonId: 'm4-l1',
+    objective: 'Recall Problem Decomposition term.',
+    explanation: 'Problem decomposition turns broad symptoms into actionable pieces.',
+    acceptedAnswers: ['Decomposition'],
+  },
+
+  // 5 SHORT_ANSWER
+  {
+    slug: 'sa-decomp-traffic',
+    type: 'SHORT_ANSWER',
+    title: 'Decomposing a Campus Congestion Problem',
+    prompt:
+      'Apply Problem Decomposition (Unit 4, p.57–58) to break down "Morning congestion at the school gate" into at least three root factors and one concrete intervention idea for each.',
+    topic: 'Problem Decomposition',
+    difficulty: 'EASY',
+    sourcePage: '57-58',
+    lessonId: 'm4-l1',
+    objective: 'Practice concrete root-cause breakdown.',
+    explanation:
+      'Separates arrival clustering, drop-off lane bottleneck and pedestrian crossing timing with targeted fixes.',
+    expectedPoints: [
+      'Identifies 3+ root causes (simultaneous arrival wave, double-parking drop-off, uncoordinated crossing signal)',
+      'Links each factor to a specific solution (staggered bus bays, traffic volunteer/sensor timing, reminder routing)',
+    ],
+  },
+  {
+    slug: 'sa-empathy-map-benefit',
+    type: 'SHORT_ANSWER',
+    title: 'Value of an Empathy Map Before Coding',
+    prompt:
+      'Why might creating an Empathy Map (Says, Thinks, Does, Feels) for visually impaired library visitors reshape an AI audio-reader capstone design?',
+    topic: 'Empathy Map',
+    difficulty: 'MEDIUM',
+    sourcePage: '59-60',
+    lessonId: 'm4-l1',
+    objective: 'Connect empathy insights to concrete design specs.',
+    explanation:
+      'Reveals anxiety around loud speakers in quiet rooms or tiny touchscreen controls—shifting design toward headphone jacks and tactile/voice controls.',
+    expectedPoints: [
+      'Captures unspoken barriers ("Feels self-conscious playing loud audio in silent reading rooms")',
+      'Leads directly to design improvements like headphone cues, offline speed or keyboard/voice shortcuts',
+    ],
+  },
+  {
+    slug: 'sa-4-questions-examples',
+    type: 'SHORT_ANSWER',
+    title: 'Four AI Question Types Applied to a School Cafeteria',
+    prompt:
+      'Write one school cafeteria prediction question each for Classification, Regression, Clustering and Anomaly Detection.',
+    topic: 'Problem Framing',
+    difficulty: 'MEDIUM',
+    sourcePage: '57',
+    lessonId: 'm4-l1',
+    objective: 'Instantiate all 4 problem framings cleanly.',
+    explanation:
+      'Clean mapping: dietary label -> Classification; plate count -> Regression; meal preference groups -> Clustering; sudden spoilage spike -> Anomaly Detection.',
+    expectedPoints: [
+      'Classification: Is a menu dish allergen-free / vegetarian / vegan?',
+      'Regression: How many lunch plates will be needed on Thursday?',
+      'Clustering: Which student snack combinations naturally group together?',
+      'Anomaly Detection: Is freezer temperature behaving unusually overnight?',
+    ],
+  },
+  {
+    slug: 'sa-baseline-why',
+    type: 'SHORT_ANSWER',
+    title: 'Evaluating Prototypes Against a Non-AI Baseline',
+    prompt:
+      'If a simple rules-based FAQ list resolves 85% of student handbook questions in 1 second, why should an AI chatbot prototype compare itself against that FAQ list?',
+    topic: 'Prototype Evaluation',
+    difficulty: 'MEDIUM',
+    sourcePage: '65-68',
+    lessonId: 'm4-l2',
+    objective: 'Justify baseline comparisons scientifically.',
+    explanation:
+      'A valid baseline checks whether added ML cost, drift and hallucination risk actually outperform simple clear rules.',
+    expectedPoints: [
+      'Quantifies real gain vs effort/maintenance complexity',
+      'Protects users from unnecessary failure modes if a simple searchable FAQ is already better',
+    ],
+  },
+  {
+    slug: 'sa-5w1h-admission',
+    type: 'SHORT_ANSWER',
+    title: 'Drafting a 5W1H Problem Statement',
+    prompt:
+      'Draft a concise 5W1H problem summary (Who, What, Where, When, Why, How) for slow scholarship-application document verification at a college office.',
+    topic: '5W1H Method',
+    difficulty: 'MEDIUM',
+    sourcePage: '61, 67',
+    lessonId: 'm4-l1',
+    objective: 'Construct a complete 5W1H problem statement.',
+    explanation:
+      'Fills all six dimensions coherently without inventing magic solutions prematurely.',
+    expectedPoints: [
+      'Who: scholarship applicants and clerk reviewers; What: slow manual verification & missing-page rejections',
+      'Where/When: student portal & office counter during admission month',
+      'Why/How: unclear checklist causes repeat visits; structured pre-check & clear feedback reduce wait times',
+    ],
+  },
+
+  // 2 LONG_CASE
+  {
+    slug: 'lc-sdg-capstone-plan',
+    type: 'LONG_CASE',
+    title: 'Case Study: Designing an SDG-Aligned Community Water Monitoring Capstone',
+    prompt:
+      'Your student team wants to address municipal tap water turbidity and leakage complaints (SDG 6). Walk through all five Design Thinking stages to plan the capstone: (1) who you observe and what an Empathy Map might uncover, (2) a 5W1H problem statement scoping what is IN vs OUT of scope, (3) two candidate AI/non-AI ideas and your ML task framing, (4) a low-fidelity prototype specification, and (5) how you would test safely with residents while handling false alarms.',
+    topic: 'End-to-End Design Thinking Case Study',
+    difficulty: 'HARD',
+    sourcePage: '58-70',
+    lessonId: 'm4-l2',
+    objective: 'Execute full Design Thinking capstone design.',
+    explanation:
+      'Covers Empathize -> 5W1H Define (narrow pilot zone) -> Ideate (Anomaly Detection on pressure + community photo log) -> Paper/dashboard prototype -> Human-verified alert testing.',
+    expectedPoints: [
+      'Empathy insights covering residents & municipal plumbers',
+      'Complete 5W1H statement + realistic scope limits (e.g. one ward pilot, non-invasive acoustic/pressure logs)',
+      'Identifies Anomaly Detection/Classification framing + non-AI baseline comparison',
+      'Concrete low-fidelity prototype + false-positive/false-negative test safeguards',
+    ],
+  },
+  {
+    slug: 'lc-chatbot-prototype-eval',
+    type: 'LONG_CASE',
+    title: 'Case Study: Critiquing an Over-Scoped Capstone Proposal',
+    prompt:
+      'Another student group submits this proposal: "We will build a universal hospital robot using secret hospital files downloaded online to diagnose every human illness with 100% accuracy in 3 weeks." Using Unit 4’s scoping, decomposition, data requirements and evaluation guidelines, write a constructive architecture review identifying four fatal flaws and rewriting it into a realistic, ethical 4-week student capstone.',
+    topic: 'Project Scoping & Risk Critique',
+    difficulty: 'HARD',
+    sourcePage: '56-70',
+    lessonId: 'm4-l2',
+    objective: 'Critique unrealistic scope and ethically rescope a capstone.',
+    explanation:
+      'Identifies unrealistic breadth, illegal/unconsented PII data assumptions, impossible 100% accuracy claim and missing clinical oversight; rescopes to e.g. public anonymized triage-guide assistant or symptom-checklist router with clinician disclaimer.',
+    expectedPoints: [
+      'Flags impossible scope ("every illness in 3 weeks") -> needs Problem Decomposition',
+      'Flags privacy/ethics violation ("secret hospital files") -> must use consented public anonymized educational datasets',
+      'Flags unscientific "100% accuracy" claim -> requires error metric + baseline + uncertainty disclaimer',
+      'Proposes feasible scoped educational alternative within SDGs (e.g. SDG 3 public health awareness FAQ prototype)',
+    ],
+  },
+
+  // 2 PRACTICAL
+  {
+    slug: 'pr-empathy-plus-5w1h',
+    type: 'PRACTICAL',
+    title: 'Practical: Build an Empathy Map & 5W1H Pair',
+    prompt:
+      'Choose the challenge: "First-year rural college students struggle to navigate scholarship portals in English." Construct (a) a 4-quadrant Empathy Map (`Says`, `Thinks`, `Does`, `Feels` — minimum 2 concrete observations per quadrant) and (b) a tight 6-line 5W1H problem brief leading to a clear measurable success criterion.',
+    topic: 'Empathy & Define Practical',
+    difficulty: 'MEDIUM',
+    sourcePage: '59-67',
+    lessonId: 'm4-l1',
+    objective: 'Produce concrete UX research artifacts.',
+    explanation:
+      'Produces concrete stakeholder observations feeding directly into clear, measurable 5W1H target criteria.',
+    expectedPoints: [
+      'Four populated Empathy Map quadrants grounded in realistic student behavior',
+      'Complete Who/What/Where/When/Why/How plus measurable metric (e.g. reducing incomplete form submissions by 40%)',
+    ],
+  },
+  {
+    slug: 'pr-one-page-canvas',
+    type: 'PRACTICAL',
+    title: 'Practical: One-Page AI Capstone Project Canvas',
+    prompt:
+      'Author a complete one-page Project Canvas for a student capstone of your choice (or school library late-return reminder optimization) filling out all 8 headings: Problem & User Group, Linked UN SDG, AI Question Type, Data Inputs & Consent Plan, Non-AI Baseline, Prototype Artifact, Primary + Secondary Evaluation Metrics, and Top 2 Failure Risks + Mitigation.',
+    topic: 'Project Canvas Practical',
+    difficulty: 'MEDIUM',
+    sourcePage: '64-70',
+    lessonId: 'm4-l2',
+    objective: 'Synthesize capstone specification on one structured page.',
+    explanation:
+      'Covers every project-planning gate rigorously including consent, baseline and risks.',
+    expectedPoints: [
+      'All 8 headings concisely populated and mutually consistent',
+      'Clear distinction between data privacy consent, baseline benchmark and failure mitigation',
+    ],
+  },
+]);

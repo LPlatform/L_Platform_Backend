@@ -11,7 +11,12 @@ import {
   courseAllocations,
 } from '../db/schema/index.js';
 import { Errors } from '../lib/errors.js';
-import { authenticate, requireRole, checkTenantAccess } from '../middleware/auth.js';
+import {
+  authenticate,
+  isPlatformOwnerRole,
+  requireRole,
+  checkTenantAccess,
+} from '../middleware/auth.js';
 
 async function getClassStats(classId: string) {
   const sectionRows = await db
@@ -82,8 +87,11 @@ export async function classRoutes(app: FastifyInstance) {
       const status = query.status?.trim();
       let organizationId = query.organizationId?.trim();
 
-      if (request.user!.role !== 'PLATFORM_ADMIN') {
-        organizationId = request.user!.organizationId;
+      if (!isPlatformOwnerRole(request.user!.role)) {
+        organizationId = request.user!.organizationId || undefined;
+        if (!organizationId) {
+          return reply.send({ items: [], total: 0, page, pageSize, totalPages: 0 });
+        }
       }
 
       const conditions: any[] = [];
@@ -154,7 +162,7 @@ export async function classRoutes(app: FastifyInstance) {
   app.get('/api/classes/options', { preHandler: [authenticate] }, async (request, reply) => {
     const query = request.query as any;
     let orgId = request.user!.organizationId;
-    if (request.user!.role === 'PLATFORM_ADMIN' && query.organizationId) {
+    if (isPlatformOwnerRole(request.user!.role) && query.organizationId) {
       orgId = query.organizationId;
     }
 
@@ -197,7 +205,7 @@ export async function classRoutes(app: FastifyInstance) {
       }
 
       let orgId = body.organizationId;
-      if (request.user!.role !== 'PLATFORM_ADMIN') {
+      if (!isPlatformOwnerRole(request.user!.role)) {
         orgId = request.user!.organizationId;
       }
       if (!orgId) throw Errors.badRequest('Organization ID is required');
