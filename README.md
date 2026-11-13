@@ -48,6 +48,10 @@ DATABASE_URL=postgresql://...test-db... pnpm test:integration   # needs a dispos
 
 Migrations never run on app start. The demo seed refuses to run in production unless `ALLOW_PROD_SEED=true`.
 
+## Installer downloads
+
+`GET /api/downloads/latest` returns the latest desktop version and installers per platform; `GET /api/downloads/latest/{windows|windows-msi|macos|linux|linux-deb}` redirects to a short-lived download URL. Release data comes from the app repo's GitHub Releases (cached 5 minutes). While that repo is private, set `GITHUB_RELEASES_TOKEN` (fine-grained, read-only Contents on that repo) in Vercel; it never leaves the server.
+
 ## Known limits
 
 - No sandboxed code runner yet: coding answers are graded by teachers.
