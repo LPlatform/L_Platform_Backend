@@ -10,13 +10,17 @@ import { AppError, Errors } from '../lib/errors.js';
 export const PLATFORMS = ['windows', 'windows-msi', 'macos', 'linux', 'linux-deb'] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
-const MATCHERS: Record<Platform, (name: string) => boolean> = {
-  windows: (n) => n.endsWith('-setup.exe'),
-  'windows-msi': (n) => n.endsWith('.msi'),
-  macos: (n) => n.endsWith('.dmg'),
-  linux: (n) => n.endsWith('.AppImage'),
-  'linux-deb': (n) => n.endsWith('.deb'),
-};
+const MATCHERS = new Map<Platform, (name: string) => boolean>([
+  ['windows', (n) => n.endsWith('-setup.exe')],
+  ['windows-msi', (n) => n.endsWith('.msi')],
+  ['macos', (n) => n.endsWith('.dmg')],
+  ['linux', (n) => n.endsWith('.AppImage')],
+  ['linux-deb', (n) => n.endsWith('.deb')],
+]);
+
+export function isPlatform(value: string): value is Platform {
+  return MATCHERS.has(value as Platform);
+}
 
 export interface ReleaseAsset {
   id: number;
@@ -32,7 +36,9 @@ export interface Release {
 }
 
 export function pickAsset(release: Release, platform: Platform): ReleaseAsset | null {
-  return release.assets.find((a) => MATCHERS[platform](a.name)) ?? null;
+  const matches = MATCHERS.get(platform);
+  if (!matches) return null;
+  return release.assets.find((a) => matches(a.name)) ?? null;
 }
 
 export function versionOf(tag: string): string {
@@ -113,11 +119,11 @@ export async function downloadRoutes(app: FastifyInstance) {
 
   app.get('/api/downloads/latest/:platform', async (request, reply) => {
     const { platform } = request.params as { platform: string };
-    if (!PLATFORMS.includes(platform as Platform)) {
+    if (!isPlatform(platform)) {
       throw Errors.notFound('Unknown platform');
     }
     const release = await getLatestRelease();
-    const asset = pickAsset(release, platform as Platform);
+    const asset = pickAsset(release, platform);
     if (!asset) {
       throw Errors.notFound('No installer for this platform yet.');
     }
