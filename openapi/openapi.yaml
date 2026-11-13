@@ -7,6 +7,54 @@ servers:
   - url: http://localhost:3001
     description: Local development server
 paths:
+  /api/downloads/latest:
+    get:
+      summary: Latest desktop app release (public)
+      operationId: getLatestDownload
+      security: []
+      responses:
+        '200':
+          description: Version and available installers per platform
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  publishedAt:
+                    type: string
+                    format: date-time
+                  platforms:
+                    type: object
+                    additionalProperties:
+                      type: [object, 'null']
+                      properties:
+                        fileName:
+                          type: string
+                        sizeBytes:
+                          type: integer
+        '503':
+          description: Release source unavailable
+  /api/downloads/latest/{platform}:
+    get:
+      summary: Download the latest installer for a platform (public)
+      operationId: downloadLatestInstaller
+      security: []
+      parameters:
+        - name: platform
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [windows, windows-msi, macos, linux, linux-deb]
+      responses:
+        '302':
+          description: Redirect to a short-lived download URL
+        '404':
+          description: Unknown platform or no installer for it
+        '503':
+          description: Release source unavailable
   /health:
     get:
       summary: Health check

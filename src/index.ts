@@ -32,6 +32,7 @@ import { reportRoutes } from './routes/reports.routes.js';
 import { learningRoutes } from './routes/learning.routes.js';
 import { assessmentRoutes } from './routes/assessment.routes.js';
 import { lmsRoutes } from './routes/lms.routes.js';
+import { downloadRoutes } from './routes/downloads.routes.js';
 
 const app = fastify({
   // Behind Vercel / the Next.js proxy, use X-Forwarded-For for client IP (rate limiting).
@@ -175,6 +176,7 @@ await app.register(reportRoutes);
 await app.register(learningRoutes);
 await app.register(assessmentRoutes);
 await app.register(lmsRoutes);
+await app.register(downloadRoutes);
 
 // Global error handler
 app.setErrorHandler((error: unknown, request, reply) => {
