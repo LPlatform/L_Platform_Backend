@@ -6,7 +6,6 @@ import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
-import swaggerUi from '@fastify/swagger-ui';
 import { pool } from './db/connection.js';
 import { runWithRlsContext, type RlsContext } from './db/rls-context.js';
 import { getAllowedCorsOrigins, getCookieSecret } from './lib/env.js';
@@ -132,13 +131,14 @@ await app.register(swagger, {
   },
 });
 
-await app.register(swaggerUi, {
-  routePrefix: '/docs',
-  uiConfig: {
-    docExpansion: 'list',
-    deepLinking: true,
-  },
-});
+// Interactive docs UI is skipped on Vercel: its static-file dependency cannot load there.
+if (!process.env.VERCEL) {
+  const { default: swaggerUi } = await import('@fastify/swagger-ui');
+  await app.register(swaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: { docExpansion: 'list', deepLinking: true },
+  });
+}
 
 // Health & readiness
 app.get('/health', async () => {
